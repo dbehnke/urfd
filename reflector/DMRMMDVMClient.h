@@ -33,6 +33,9 @@ public:
 	// destructor
 	virtual ~CDmrmmdvmClient() {};
 
+	// Override JsonReport for Multi-Module support
+	virtual void JsonReport(nlohmann::json &report) override;
+
 	// identity
 	EProtocol GetProtocol(void) const           { return EProtocol::dmrmmdvm; }
 	const char *GetProtocolName(void) const     { return "DMR"; }
