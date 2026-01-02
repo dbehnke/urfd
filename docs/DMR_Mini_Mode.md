@@ -52,6 +52,9 @@ DefaultTimeout=600
 ; You can override specific maps:
 MapA=4001
 MapB=4002
+
+; IMPORTANT: Any module you map (e.g. A, B) MUST be enabled in the [Modules] section!
+; If Module A is not enabled, traffic for TG 4001 will be dropped.
 ```
 
 ## Usage
@@ -81,3 +84,12 @@ You can manage subscriptions sent from your MMDVM hotspot/repeater configuration
 ### 4. Talkgroup 9 (Reflector)
 
 * Traffic on **TG 9** is treated as local reflector traffic (linked functionality) if the client is essentially "linked" to a module, but in Mini DMR mode, TG 9 behavior depends on the specific map configuration or defaults. Typically, use specific Talkgroups for wide-area routing.
+
+## Troubleshooting
+
+### "Recordings are blank" or "No Traffic on other modes"
+
+If clients can connect and transmit but you see no traffic on other protocols (M17, YSF) or blank recordings:
+
+* **Check Modules**: Ensure the mapped Module (e.g. A for TG 4001) is defined and **enabled** in your `[Modules]` configuration.
+* **Log Check**: Look for `Can't find module 'X' for Client ...` errors in the reflector log.

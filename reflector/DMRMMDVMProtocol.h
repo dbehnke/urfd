@@ -99,8 +99,8 @@ protected:
 	uint32_t ModuleToDmrDestId(char) const;
 
 	// Buffer & LC helpers
-	void AppendVoiceLCToBuffer(CBuffer *, uint32_t) const;
-	void AppendTerminatorLCToBuffer(CBuffer *, uint32_t) const;
+	void AppendVoiceLCToBuffer(CBuffer *, uint32_t, uint32_t) const;
+	void AppendTerminatorLCToBuffer(CBuffer *, uint32_t, uint32_t) const;
 	void ReplaceEMBInBuffer(CBuffer *, uint8_t) const;
 	void AppendDmrIdToBuffer(CBuffer *, uint32_t) const;
 	void AppendDmrRptrIdToBuffer(CBuffer *, uint32_t) const;

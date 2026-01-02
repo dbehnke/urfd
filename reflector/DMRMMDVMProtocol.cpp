@@ -1015,7 +1015,7 @@ bool CDmrmmdvmProtocol::EncodeMMDVMHeaderPacket(const CDvHeaderPacket &Packet, u
 	Buffer->Append((uint32_t)uiStreamId);
 
 	// Payload
-	AppendVoiceLCToBuffer(Buffer, uiSrcId);
+	AppendVoiceLCToBuffer(Buffer, uiSrcId, uiDstId);
 
 	// BER
 	Buffer->Append((uint8_t)0);
@@ -1054,8 +1054,8 @@ void CDmrmmdvmProtocol::EncodeMMDVMPacket(const CDvHeaderPacket &Header, const C
 	}
 
 	AppendDmrIdToBuffer(Buffer, uiSrcId);
-	// uiDstId = TG9
-	uint32_t uiDstId = 9; // ModuleToDmrDestId(Header.GetRpt2Module());
+	// uiDstId
+	uint32_t uiDstId = ModuleToDmrDestId(Header.GetRpt2Module());
 	AppendDmrIdToBuffer(Buffer, uiDstId);
 	// uiRptrId
 	uint32_t uiRptrId = Header.GetRpt1Callsign().GetDmrid();
@@ -1119,7 +1119,7 @@ void CDmrmmdvmProtocol::EncodeLastMMDVMPacket(const CDvHeaderPacket &Packet, uin
 	uint32_t uiSrcId = Packet.GetMyCallsign().GetDmrid();
 	AppendDmrIdToBuffer(Buffer, uiSrcId);
 	// uiDstId
-	uint32_t uiDstId = 9; //ModuleToDmrDestId(Packet.GetRpt2Module());
+	uint32_t uiDstId = ModuleToDmrDestId(Packet.GetRpt2Module());
 	AppendDmrIdToBuffer(Buffer, uiDstId);
 	// uiRptrId
 	uint32_t uiRptrId = Packet.GetRpt1Callsign().GetDmrid();
@@ -1135,7 +1135,7 @@ void CDmrmmdvmProtocol::EncodeLastMMDVMPacket(const CDvHeaderPacket &Packet, uin
 	Buffer->Append((uint32_t)uiStreamId);
 
 	// Payload
-	AppendTerminatorLCToBuffer(Buffer, uiSrcId);
+	AppendTerminatorLCToBuffer(Buffer, uiSrcId, uiDstId);
 
 	// BER
 	Buffer->Append((uint8_t)0);
@@ -1210,7 +1210,7 @@ uint32_t CDmrmmdvmProtocol::ModuleToDmrDestId(char m) const
 ////////////////////////////////////////////////////////////////////////////////////////
 // Buffer & LC helpers
 
-void CDmrmmdvmProtocol::AppendVoiceLCToBuffer(CBuffer *buffer, uint32_t uiSrcId) const
+void CDmrmmdvmProtocol::AppendVoiceLCToBuffer(CBuffer *buffer, uint32_t uiSrcId, uint32_t uiDstId) const
 {
 	uint8_t payload[33];
 
@@ -1221,8 +1221,8 @@ void CDmrmmdvmProtocol::AppendVoiceLCToBuffer(CBuffer *buffer, uint32_t uiSrcId)
 	uint8_t lc[12];
 	{
 		memset(lc, 0, sizeof(lc));
-		// uiDstId = TG9
-		lc[5] = 9;
+		// uiDstId
+		lc[5] = (uint8_t)uiDstId;
 		// uiSrcId
 		lc[6] = (uint8_t)LOBYTE(HIWORD(uiSrcId));
 		lc[7] = (uint8_t)HIBYTE(LOWORD(uiSrcId));
@@ -1257,7 +1257,7 @@ void CDmrmmdvmProtocol::AppendVoiceLCToBuffer(CBuffer *buffer, uint32_t uiSrcId)
 	buffer->Append(payload, sizeof(payload));
 }
 
-void CDmrmmdvmProtocol::AppendTerminatorLCToBuffer(CBuffer *buffer, uint32_t uiSrcId) const
+void CDmrmmdvmProtocol::AppendTerminatorLCToBuffer(CBuffer *buffer, uint32_t uiSrcId, uint32_t uiDstId) const
 {
 	uint8_t payload[33];
 
@@ -1268,8 +1268,8 @@ void CDmrmmdvmProtocol::AppendTerminatorLCToBuffer(CBuffer *buffer, uint32_t uiS
 	uint8_t lc[12];
 	{
 		memset(lc, 0, sizeof(lc));
-		// uiDstId = TG9
-		lc[5] = 9;
+		// uiDstId
+		lc[5] = (uint8_t)uiDstId;
 		// uiSrcId
 		lc[6] = (uint8_t)LOBYTE(HIWORD(uiSrcId));
 		lc[7] = (uint8_t)HIBYTE(LOWORD(uiSrcId));
