@@ -1089,6 +1089,9 @@ bool CDmrmmdvmProtocol::EncodeMMDVMHeaderPacket(const CDvHeaderPacket &Packet, u
 	Buffer->Append((uint8_t)seqid);
 	// uiSrcId
 	uint32_t uiSrcId = Packet.GetMyCallsign().GetDmrid();
+    // Fallback to default ID if source has none (e.g. Analog bridge)
+    if (uiSrcId == 0) uiSrcId = m_DefaultId;
+
 	AppendDmrIdToBuffer(Buffer, uiSrcId);
 	// uiDstId
 	AppendDmrIdToBuffer(Buffer, dstId);
@@ -1207,6 +1210,9 @@ void CDmrmmdvmProtocol::EncodeLastMMDVMPacket(const CDvHeaderPacket &Packet, uin
 	Buffer->Append((uint8_t)seqid);
 	// uiSrcId
 	uint32_t uiSrcId = Packet.GetMyCallsign().GetDmrid();
+    // Fallback to default ID if source has none
+    if (uiSrcId == 0) uiSrcId = m_DefaultId;
+
 	AppendDmrIdToBuffer(Buffer, uiSrcId);
 	// uiDstId
 	AppendDmrIdToBuffer(Buffer, dstId);
