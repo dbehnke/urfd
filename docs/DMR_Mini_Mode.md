@@ -20,7 +20,7 @@ graph TD
         TrafficB[Traffic on TG 4001] --> Scanner
         
         Scanner -->|Yes| Lock[Lock onto TG 3100]
-        Lock --> Map[Route to Client (TS1)]
+        Lock --> Map["Route to Client (TS1)"]
         
         Scanner -->|"No (Held by 3100)"| Block[Block TG 4001]
     end
