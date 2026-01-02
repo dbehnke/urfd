@@ -230,7 +230,7 @@ void CDmrmmdvmProtocol::Task(void)
 
 			// ignore...
 		}
-		else if ( IsValidOptionPacket(Buffer, &Callsign) )
+		else if ( IsValidOptionPacket(Buffer, &Callsign, Ip) )
 		{
 			std::cout << "DMRmmdvm options packet from " << Callsign << " at " << Ip << std::endl;
 
@@ -688,7 +688,7 @@ bool CDmrmmdvmProtocol::IsValidConfigPacket(const CBuffer &Buffer, CCallsign *ca
 	return valid;
 }
 
-bool CDmrmmdvmProtocol::IsValidOptionPacket(const CBuffer &Buffer, CCallsign *callsign)
+bool CDmrmmdvmProtocol::IsValidOptionPacket(const CBuffer &Buffer, CCallsign *callsign, const CIp &Ip)
 {
 	uint8_t tag[] = { 'R','P','T','O' };
 

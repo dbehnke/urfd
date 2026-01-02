@@ -77,7 +77,7 @@ protected:
 	bool IsValidAuthenticationPacket(const CBuffer &, CCallsign *, const CIp &);
 	bool IsValidDisconnectPacket(const CBuffer &, CCallsign *);
 	bool IsValidConfigPacket(const CBuffer &, CCallsign *, const CIp &);
-	bool IsValidOptionPacket(const CBuffer &, CCallsign *);
+	bool IsValidOptionPacket(const CBuffer &, CCallsign *, const CIp &);
 	bool IsValidKeepAlivePacket(const CBuffer &, CCallsign *);
 	bool IsValidRssiPacket(const CBuffer &, CCallsign *, int *);
 	bool IsValidDvHeaderPacket(const CBuffer &, std::unique_ptr<CDvHeaderPacket> &, uint8_t *, uint8_t *);
