@@ -346,6 +346,9 @@ void CDmrmmdvmProtocol::OnDvHeaderPacketIn(std::unique_ptr<CDvHeaderPacket> &Hea
 							g_Reflector.ReleaseClients();
 							return;
 						}
+
+						// FIX: Ensure OpenStream sees the client attached to this module
+						client->SetReflectorModule(rpt2.GetCSModule());
 					}
 				}
 			}
