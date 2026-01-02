@@ -112,25 +112,23 @@ void CDMRScanner::parseOptions(const std::string& options)
     // Let's assume for now we ADD/UPDATE. 
     
     // Actually, simpler implementation for now: Just Add.
-    for (auto tg : ts1_tgs) AddSubscription(tg, 1, timeout);
-    for (auto tg : ts2_tgs) AddSubscription(tg, 2, timeout);
+    // parseOptions: call AddSubscription with isStatic=true
+    for (auto tg : ts1_tgs) AddSubscription(tg, 1, timeout, true);
+    for (auto tg : ts2_tgs) AddSubscription(tg, 2, timeout, true);
 }
 
-void CDMRScanner::AddSubscription(unsigned int tgid, int timeslot, unsigned int timeout)
+void CDMRScanner::AddSubscription(unsigned int tgid, int timeslot, unsigned int timeout, bool isStatic)
 {
 	std::lock_guard<std::recursive_mutex> lock(m_Mutex);
     
     if (tgid == 4000) {
-        // Disconnect/Unsubscribe
-        // Unsubscribe all on this timeslot? or just generic?
-        // User said "4000 will always be disconnect".
-        // Let's interpret as clear this timeslot.
         m_Subscriptions[timeslot].clear();
         return;
     }
 
 	if (m_SingleMode) {
 		m_Subscriptions[timeslot].clear();
+        isStatic = true; // Single Mode always static
 	}
 
 	// Remove if exists to update
@@ -140,6 +138,7 @@ void CDMRScanner::AddSubscription(unsigned int tgid, int timeslot, unsigned int 
 	sub.tgid = tgid;
 	sub.timeout = timeout;
 	sub.expiry = (timeout == 0) ? 0 : std::time(nullptr) + timeout;
+    sub.isStatic = isStatic;
 
 	m_Subscriptions[timeslot].push_back(sub);
 }
@@ -162,21 +161,13 @@ void CDMRScanner::ClearSubscriptions()
 
 bool CDMRScanner::IsSubscribed(unsigned int tgid) const
 {
-	// Check all timeslots
-	// Note: Locked access
-	// We need to implement lookup.
-    // But this function is const, can't use non-const mutex unless mutable. Made mutable in header.
 	std::lock_guard<std::recursive_mutex> lock(m_Mutex);
-    
-    // First Clean expired
-    // Actually can't clean in const method easily unless we cast const away or make cleanup const-friendly (no).
-    // Let's checking expiration on the fly.
     std::time_t now = std::time(nullptr);
 
 	for (const auto& pair : m_Subscriptions) {
 		for (const auto& sub : pair.second) {
 			if (sub.tgid == tgid) {
-			    if (sub.timeout > 0 && now > sub.expiry) continue;
+			    if (!sub.isStatic && sub.timeout > 0 && now > sub.expiry) continue;
 				return true;
 			}
 		}
@@ -192,7 +183,7 @@ bool CDMRScanner::IsSubscribed(unsigned int tgid, int timeslot) const
     if (m_Subscriptions.count(timeslot)) {
         for (const auto& sub : m_Subscriptions.at(timeslot)) {
             if (sub.tgid == tgid) {
-			    if (sub.timeout > 0 && now > sub.expiry) continue;
+			    if (!sub.isStatic && sub.timeout > 0 && now > sub.expiry) continue;
 				return true;
             }
         }
@@ -234,7 +225,7 @@ void CDMRScanner::cleanupExpired()
 	for (auto& pair : m_Subscriptions) {
 		auto& subs = pair.second;
 		subs.erase(std::remove_if(subs.begin(), subs.end(),
-			[now](const SSubscription& s) { return s.timeout > 0 && now > s.expiry; }), subs.end());
+			[now](const SSubscription& s) { return !s.isStatic && s.timeout > 0 && now > s.expiry; }), subs.end());
 	}
     
     if (m_CurrentScanTG[0] != 0 && !IsSubscribed(m_CurrentScanTG[0], 1)) m_CurrentScanTG[0] = 0;

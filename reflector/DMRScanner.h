@@ -23,6 +23,7 @@ struct SSubscription {
 	unsigned int tgid;
 	unsigned int timeout; // seconds, 0 = infinite
 	std::time_t expiry;   // absolute time
+    bool isStatic;        // true if static (no timeout)
 };
 
 class CDMRScanner
@@ -33,10 +34,11 @@ public:
 
 	// Configuration
 	void Configure(bool singleMode, unsigned int defaultTimeout, unsigned int holdTime);
+    bool IsSingleMode() const { return m_SingleMode; }
 
 	// Subscription Management
 	void UpdateSubscriptions(const std::string& options);
-	void AddSubscription(unsigned int tgid, int timeslot, unsigned int timeout);
+	void AddSubscription(unsigned int tgid, int timeslot, unsigned int timeout, bool isStatic = false);
 	void RemoveSubscription(unsigned int tgid, int timeslot);
 	void ClearSubscriptions();
 	bool IsSubscribed(unsigned int tgid) const;

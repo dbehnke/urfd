@@ -349,7 +349,9 @@ void CDmrmmdvmProtocol::OnDvHeaderPacketIn(std::unique_ptr<CDvHeaderPacket> &Hea
 						// If slot was 0, it means not subscribed. We should probably auto-subscribe.
 						// But which slot? Usually TS2 is safe default for Hotspots.
 						if (slot == 2 && dmrClient->m_Scanner.GetSubscriptionSlot(tg) == 0) {
-							 dmrClient->m_Scanner.AddSubscription(tg, 2, timeout);
+                             // PTT -> Dynamic Subscription (isStatic=false)
+                             // Note: AddSubscription internally handles SingleMode override (forces static)
+							 dmrClient->m_Scanner.AddSubscription(tg, 2, timeout, false);
 						}
 						
 						// Check Access on the specific slot
