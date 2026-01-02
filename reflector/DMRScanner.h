@@ -44,7 +44,7 @@ public:
 
 	// Packet Access Check (Scanner Logic)
 	// Returns true if packet with this TG should be processed
-	bool CheckAccess(unsigned int tgid);
+	bool CheckAccess(unsigned int tgid, int slot = 0);
 
 	// Getters
 	unsigned int GetFirstSubscription() const;
