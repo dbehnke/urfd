@@ -308,6 +308,16 @@ void CDmrmmdvmProtocol::OnDvHeaderPacketIn(std::unique_ptr<CDvHeaderPacket> &Hea
 					char mod = rpt2.GetCSModule();
 					uint32_t tg = ModuleToDmrDestId(mod);
 					
+					// Mini DMR: Explicit Disconnect (TG 4000 or specific unlink cmd)
+					if (tg == 4000 || cmd == CMD_UNLINK)
+					{
+						std::cout << "DMRmmdvm client " << client->GetCallsign() << " Mini DMR Disconnect (TG 4000)" << std::endl;
+						dmrClient->m_Scanner.ClearSubscriptions();
+						client->SetReflectorModule(' '); // Clear module attachment
+						g_Reflector.ReleaseClients();
+						return; 
+					}
+					
 					// Anti-Kerchunk / Hold Check
 					// If this is a new transmission (Header), we check access.
 					if (!dmrClient->m_Scanner.CheckAccess(tg)) {
@@ -689,6 +699,26 @@ bool CDmrmmdvmProtocol::IsValidOptionPacket(const CBuffer &Buffer, CCallsign *ca
 		callsign->SetDmrid(uiRptrId, true);
 		callsign->SetCSModule(MMDVM_MODULE_ID);
 		valid = callsign->IsValid();
+
+		if (valid && Buffer.size() > 8) {
+			// Extract Options String
+			std::string options((const char*)(Buffer.data() + 8), Buffer.size() - 8);
+			// Trim potential nulls
+			size_t nullpos = options.find('\0');
+			if (nullpos != std::string::npos) options.resize(nullpos);
+
+			// Find client and update
+			CClients *clients = g_Reflector.GetClients();
+			std::shared_ptr<CClient> client = clients->FindClient(*callsign, Ip, EProtocol::dmrmmdvm);
+			if (client) {
+				std::shared_ptr<CDmrmmdvmClient> dmrClient = std::dynamic_pointer_cast<CDmrmmdvmClient>(client);
+				if (dmrClient) {
+					std::cout << "DMRmmdvm RPTO Options for " << *callsign << ": " << options << std::endl;
+					dmrClient->m_Scanner.UpdateSubscriptions(options);
+				}
+			}
+			g_Reflector.ReleaseClients();
+		}
 	}
 	return valid;
 }

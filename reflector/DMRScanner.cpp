@@ -66,7 +66,23 @@ void CDMRScanner::parseOptions(const std::string& options)
             key.erase(0, key.find_first_not_of(" \t\r\n"));
             key.erase(key.find_last_not_of(" \t\r\n") + 1);
             
-            if (key == "AUTO") {
+            if (key == "Options") {
+                // Recursive parse or just assume val contains the options?
+                // Example: Options=TS1=4001,4002
+                // Wait, typically MMDVMHost sends: Options=TS1=4001,4002;TS2=9
+                // If the entire string is "Options=...", we need to parse 'val'.
+                // If 'val' contains semicolons, std::getline logic above might have split it already?
+                // No, std::getline splits on ';' first.
+                // Case 1: "Options=TS1=4001,4002;TS2=9"
+                // Segment 1: "Options=TS1=4001,4002". Key="Options", Val="TS1=4001,4002".
+                // We should parse 'Val'.
+                // But wait, 'Val' is "TS1=4001,4002". It'looks like a K=V itself?
+                // Let's recursively call parseOptions(val) or just process val.
+                // But verify val format.
+                // Simplest: Check if val starts with TS1/TS2/AUTO ?
+                parseOptions(val); 
+            }
+            else if (key == "AUTO") {
                 try {
                     timeout = std::stoul(val);
                 } catch(...) {}
