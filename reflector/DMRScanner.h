@@ -49,6 +49,7 @@ public:
 	// Getters
 	unsigned int GetFirstSubscription() const;
 	unsigned int GetSubscriptionSlot(unsigned int tgid) const;
+	void GetActiveTalkgroups(std::vector<unsigned int>& tgs) const;
 	unsigned int GetCurrentScanTG() const { return m_CurrentScanTG; }
 
 private:

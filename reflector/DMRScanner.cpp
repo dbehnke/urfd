@@ -276,3 +276,22 @@ unsigned int CDMRScanner::GetSubscriptionSlot(unsigned int tgid) const
     }
     return 0;
 }
+
+void CDMRScanner::GetActiveTalkgroups(std::vector<unsigned int>& tgs) const
+{
+	std::lock_guard<std::recursive_mutex> lock(m_Mutex);
+    tgs.clear();
+    
+    // Check TS1
+    if (m_Subscriptions.count(1)) {
+        for(const auto& s : m_Subscriptions.at(1)) {
+            tgs.push_back(s.tgid);
+        }
+    }
+    // Check TS2
+    if (m_Subscriptions.count(2)) {
+        for(const auto& s : m_Subscriptions.at(2)) {
+            tgs.push_back(s.tgid);
+        }
+    }
+}

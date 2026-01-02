@@ -18,6 +18,9 @@
 
 
 #include "DMRMMDVMClient.h"
+#include "Global.h"
+#include "Configure.h"
+#include "DMRMMDVMProtocol.h" // For mapping logic if accessible, or we reimplement
 
 
 ////////////////////////////////////////////////////////////////////////////////////////
@@ -43,4 +46,77 @@ CDmrmmdvmClient::CDmrmmdvmClient(const CDmrmmdvmClient &client)
 bool CDmrmmdvmClient::IsAlive(void) const
 {
 	return (m_LastKeepaliveTime.time() < DMRMMDVM_KEEPALIVE_TIMEOUT);
+}
+
+// Multi-Module Reporting for Dashboard
+void CDmrmmdvmClient::JsonReport(nlohmann::json &report)
+{
+	if (g_Configure.GetBoolean(g_Keys.dmr.xlx)) {
+        // Legacy behavior
+        CClient::JsonReport(report);
+        return;
+    }
+
+    // Mini DMR Mode
+	bool anySub = false;
+
+    // Collect Subscriptions Info
+    nlohmann::json jSubs = nlohmann::json::array();
+    
+    std::vector<unsigned int> tgs;
+    m_Scanner.GetActiveTalkgroups(tgs);
+    
+    for(unsigned int tg : tgs) {
+        if (m_Scanner.IsSubscribed(tg, 1)) {
+             nlohmann::json s; s["TG"] = tg; s["Slot"] = 1; jSubs.push_back(s);
+        }
+        if (m_Scanner.IsSubscribed(tg, 2)) {
+             nlohmann::json s; s["TG"] = tg; s["Slot"] = 2; jSubs.push_back(s);
+        }
+    }
+
+	// Helper to add node entry
+	auto addNode = [&](char module) {
+		nlohmann::json jclient;
+		jclient["Callsign"] = m_Callsign.GetCS();
+		jclient["OnModule"] = std::string(1, module);
+		jclient["Protocol"] = GetProtocolName();
+        jclient["Subscriptions"] = jSubs;
+		char s[100];
+		if (std::strftime(s, sizeof(s), "%FT%TZ", std::gmtime(&m_ConnectTime)))
+			jclient["ConnectTime"] = s;
+		report["Clients"].push_back(jclient);
+	};
+
+    // Reimplement logic using global config.
+    auto dmrdstToMod = [&](uint32_t tg) -> char {
+		for (char c = 'A'; c <= 'Z'; c++) {
+			std::string key = g_Keys.dmr.map_prefix + c;
+			if (g_Configure.Contains(key)) {
+				if (g_Configure.GetUnsigned(key) == tg) return c;
+			} else {
+				if (tg == (uint32_t)(4001 + (c - 'A'))) return c;
+			}
+		}
+        return ' ';
+    };
+
+    // Process unique modules only to avoid duplicates
+    std::string addedModules = "";
+    
+    for(unsigned int tg : tgs) {
+        char mod = dmrdstToMod(tg);
+        if (mod != ' ') {
+            if (addedModules.find(mod) == std::string::npos) {
+                addNode(mod);
+                addedModules += mod;
+                anySub = true;
+            }
+        }
+    }
+
+	// Fallback or Legacy: Use standard module if no specific subscriptions found (or in XLX mode)
+	if (!anySub) {
+		CClient::JsonReport(report);
+	}
 }
