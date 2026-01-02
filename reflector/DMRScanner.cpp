@@ -1,0 +1,212 @@
+/*
+ *   Copyright (c) 2024 by Thomas A. Early N7TAE
+ *
+ *   This program is free software; you can redistribute it and/or modify
+ *   it under the terms of the GNU General Public License as published by
+ *   the Free Software Foundation; either version 2 of the License, or
+ *   (at your option) any later version.
+ */
+
+#include "DMRScanner.h"
+#include <iostream>
+#include <algorithm>
+
+CDMRScanner::CDMRScanner() :
+	m_SingleMode(false),
+	m_DefaultTimeout(600),
+	m_HoldTime(5),
+	m_CurrentScanTG(0)
+{
+}
+
+CDMRScanner::~CDMRScanner()
+{
+}
+
+void CDMRScanner::Configure(bool singleMode, unsigned int defaultTimeout, unsigned int holdTime)
+{
+	std::lock_guard<std::recursive_mutex> lock(m_Mutex);
+	m_SingleMode = singleMode;
+	m_DefaultTimeout = defaultTimeout;
+	m_HoldTime = holdTime;
+}
+
+void CDMRScanner::UpdateSubscriptions(const std::string& options)
+{
+	std::lock_guard<std::recursive_mutex> lock(m_Mutex);
+    parseOptions(options);
+}
+
+void CDMRScanner::parseOptions(const std::string& options)
+{
+    // Basic parsing: Options: TS1=4001,4002;TS2=9;AUTO=600
+    // Split by ';'
+    if (options.empty()) return;
+
+    std::stringstream ss(options);
+    std::string segment;
+    unsigned int timeout = m_DefaultTimeout;
+    
+    // First pass to find AUTO/Timeout if present (to apply to TGs)
+    // Actually, typically AUTO applies to all in the string.
+    // Let's parse into a temporary structure first.
+    
+    std::vector<unsigned int> ts1_tgs;
+    std::vector<unsigned int> ts2_tgs;
+    
+    while(std::getline(ss, segment, ';'))
+    {
+        size_t eq = segment.find('=');
+        if (eq != std::string::npos)
+        {
+            std::string key = segment.substr(0, eq);
+            std::string val = segment.substr(eq + 1);
+            
+            // trim key/val
+            key.erase(0, key.find_first_not_of(" \t\r\n"));
+            key.erase(key.find_last_not_of(" \t\r\n") + 1);
+            
+            if (key == "AUTO") {
+                try {
+                    timeout = std::stoul(val);
+                } catch(...) {}
+            } else if (key == "TS1") {
+                std::stringstream vs(val);
+                std::string v;
+                while(std::getline(vs, v, ',')) {
+                    try { ts1_tgs.push_back(std::stoul(v)); } catch(...) {}
+                }
+            } else if (key == "TS2") {
+                std::stringstream vs(val);
+                std::string v;
+                while(std::getline(vs, v, ',')) {
+                    try { ts2_tgs.push_back(std::stoul(v)); } catch(...) {}
+                }
+            }
+        }
+    }
+    
+    // Apply (Replace existing usually? Or append? The prompt said "Options string... to configure subscriptions". 
+    // Usually RPTC is a full state update. Let's assume replace for provided timeslots).
+    // Actually user said "clients can send options... similar to freedmr". 
+    // Freedmr options usually add/set. 
+    // Let's implement ADD logic, but if SingleMode is on, it naturally replaces.
+    // Wait, typical "Options=" in password means "Set these". So we should probably existing ones if they are re-specified?
+    // Let's assume for now we ADD/UPDATE. 
+    
+    // Actually, simpler implementation for now: Just Add.
+    for (auto tg : ts1_tgs) AddSubscription(tg, 1, timeout);
+    for (auto tg : ts2_tgs) AddSubscription(tg, 2, timeout);
+}
+
+void CDMRScanner::AddSubscription(unsigned int tgid, int timeslot, unsigned int timeout)
+{
+	std::lock_guard<std::recursive_mutex> lock(m_Mutex);
+    
+    if (tgid == 4000) {
+        // Disconnect/Unsubscribe
+        // Unsubscribe all on this timeslot? or just generic?
+        // User said "4000 will always be disconnect".
+        // Let's interpret as clear this timeslot.
+        m_Subscriptions[timeslot].clear();
+        return;
+    }
+
+	if (m_SingleMode) {
+		m_Subscriptions[timeslot].clear();
+	}
+
+	// Remove if exists to update
+	RemoveSubscription(tgid, timeslot);
+
+	SSubscription sub;
+	sub.tgid = tgid;
+	sub.timeout = timeout;
+	sub.expiry = (timeout == 0) ? 0 : std::time(nullptr) + timeout;
+
+	m_Subscriptions[timeslot].push_back(sub);
+}
+
+void CDMRScanner::RemoveSubscription(unsigned int tgid, int timeslot)
+{
+	std::lock_guard<std::recursive_mutex> lock(m_Mutex);
+	auto& subs = m_Subscriptions[timeslot];
+	subs.erase(std::remove_if(subs.begin(), subs.end(),
+		[tgid](const SSubscription& s) { return s.tgid == tgid; }), subs.end());
+}
+
+void CDMRScanner::ClearSubscriptions()
+{
+	std::lock_guard<std::recursive_mutex> lock(m_Mutex);
+	m_Subscriptions.clear();
+	m_CurrentScanTG = 0;
+}
+
+bool CDMRScanner::IsSubscribed(unsigned int tgid) const
+{
+	// Check all timeslots
+	// Note: Locked access
+	// We need to implement lookup.
+    // But this function is const, can't use non-const mutex unless mutable. Made mutable in header.
+	std::lock_guard<std::recursive_mutex> lock(m_Mutex);
+    
+    // First Clean expired
+    // Actually can't clean in const method easily unless we cast const away or make cleanup const-friendly (no).
+    // Let's checking expiration on the fly.
+    std::time_t now = std::time(nullptr);
+
+	for (const auto& pair : m_Subscriptions) {
+		for (const auto& sub : pair.second) {
+			if (sub.tgid == tgid) {
+			    if (sub.timeout > 0 && now > sub.expiry) continue;
+				return true;
+			}
+		}
+	}
+	return false;
+}
+
+bool CDMRScanner::CheckAccess(unsigned int tgid)
+{
+	std::lock_guard<std::recursive_mutex> lock(m_Mutex);
+
+	cleanupExpired();
+
+	if (!IsSubscribed(tgid)) return false;
+
+	// Scanner Logic
+	if (m_CurrentScanTG != 0) {
+		if (m_CurrentScanTG == tgid) {
+			// Reset Hold
+			m_HoldTimer.start();
+			return true;
+		}
+
+		// Check if hold expired
+		if (m_HoldTimer.time() < m_HoldTime) {
+			// Still holding another TG
+			return false;
+		}
+	}
+
+	// Switch to this TG
+	m_CurrentScanTG = tgid;
+	m_HoldTimer.start();
+	return true;
+}
+
+void CDMRScanner::cleanupExpired()
+{
+	std::time_t now = std::time(nullptr);
+	for (auto& pair : m_Subscriptions) {
+		auto& subs = pair.second;
+		subs.erase(std::remove_if(subs.begin(), subs.end(),
+			[now](const SSubscription& s) { return s.timeout > 0 && now > s.expiry; }), subs.end());
+	}
+    
+    // Also reset Scan TG if it was expired (though CheckAccess handles hold, not subscription expiry of current)
+    // If current scan TG expires, we should probably verify it exists?
+    if (m_CurrentScanTG != 0 && !IsSubscribed(m_CurrentScanTG)) {
+        m_CurrentScanTG = 0;
+    }
+}

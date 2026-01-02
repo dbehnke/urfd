@@ -20,6 +20,7 @@
 
 #include "Defines.h"
 #include "Client.h"
+#include "DMRScanner.h"
 
 class CDmrmmdvmClient : public CClient
 {
@@ -39,4 +40,6 @@ public:
 
 	// status
 	bool IsAlive(void) const;
+
+	CDMRScanner m_Scanner;
 };

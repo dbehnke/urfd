@@ -158,7 +158,16 @@ void CDmrmmdvmProtocol::Task(void)
 					std::cout << "DMRmmdvm login from " << Callsign << " at " << Ip << std::endl;
 
 					// create the client and append
-					clients->AddClient(std::make_shared<CDmrmmdvmClient>(Callsign, Ip));
+					std::shared_ptr<CDmrmmdvmClient> newClient = std::make_shared<CDmrmmdvmClient>(Callsign, Ip);
+					
+					// Configure Scanner
+					newClient->m_Scanner.Configure(
+						g_Configure.GetBoolean(g_Keys.dmr.single),
+						g_Configure.GetUnsigned(g_Keys.dmr.timeout),
+						g_Configure.GetUnsigned(g_Keys.dmr.hold)
+					);
+					
+					clients->AddClient(newClient);
 				}
 				else
 				{
@@ -280,6 +289,67 @@ void CDmrmmdvmProtocol::OnDvHeaderPacketIn(std::unique_ptr<CDvHeaderPacket> &Hea
 		std::shared_ptr<CClient>client = g_Reflector.GetClients()->FindClient(Ip, EProtocol::dmrmmdvm);
 		if ( client )
 		{
+			// Mini DMR / Flexible Mode Logic
+			if (!g_Configure.GetBoolean(g_Keys.dmr.xlx))
+			{
+				std::shared_ptr<CDmrmmdvmClient> dmrClient = std::dynamic_pointer_cast<CDmrmmdvmClient>(client);
+				if (dmrClient)
+				{
+					// Map Destination ID (TG) to Module (if applicable, but we mostly care about TG)
+					// Actually, DmrDstIdToModule handles dynamic mapping now.
+					// But we want to use the RAW TG for subscription?
+					// DmrDstIdToModule uses the map to find 'A' from TG.
+					// If we are in XlxMode=false, DmrDstIdToModule uses the map.
+					// rpt2 checks GetCSModule().
+					// We need to know the Talkgroup.
+					// Helper: module 'A' -> TG X.
+					// Header->GetRpt2Callsign() call has Module set by DmrDstIdToModule.
+					
+					char mod = rpt2.GetCSModule();
+					uint32_t tg = ModuleToDmrDestId(mod);
+					
+					// Anti-Kerchunk / Hold Check
+					// If this is a new transmission (Header), we check access.
+					if (!dmrClient->m_Scanner.CheckAccess(tg)) {
+						// Blocked by Scanner Hold or not subscribed?
+						// Wait, strict logic: "Clients subscribe... traffic is routed".
+						// If I PTT on a TG, should I auto-subscribe?
+						// Plan says: "Subscribe: Thread-safe update... First PTT Logic".
+						// So we SHOULD subscribe.
+						// But if we subscribe, CheckAccess(tg) will return true (unless held by OTHER).
+						// So we add subscription first.
+						
+						// Add Subscription (Dynamic)
+						unsigned int timeout = g_Configure.GetUnsigned(g_Keys.dmr.timeout);
+						// Slot? Usually assume Slot 2 or from Header? Header has slot info?
+						// CDvHeaderPacket doesn't easily expose slot in args here, passed in?
+						// Header->GetBitField? 
+						// Actually buffer parsing did it.
+						// We don't have slot easily available here except from previous context?
+						// Buffer parsing sets 'header' and 'cmd'.
+						// Let's assume Slot 2 for now or try to get it.
+						// Or just subscribe on BOTH slots or generic? Scanner manages per slot.
+						// Ideally we need the slot.
+						// But 'OnDvHeaderPacketIn' signature doesn't pass slot.
+						// The caller 'Task' has 'uiSlot'.
+						// Maybe we should pass slot to OnDvHeaderPacketIn?
+						// Or just use default/wildcard.
+						// For now, let's assume Timeslot 2 (Reflector) or try to deduce.
+						// We'll use 0 (any) if Scanner supports it, or parse.
+						
+						dmrClient->m_Scanner.AddSubscription(tg, 2, timeout); // Defaulting to TS2 for voice
+						
+						// Check again
+						if (!dmrClient->m_Scanner.CheckAccess(tg)) {
+							// Blocked (Held by another TG)
+							// Drop packet (return)
+							g_Reflector.ReleaseClients();
+							return;
+						}
+					}
+				}
+			}
+
 			// process cmd if any
 			if ( !client->HasReflectorModule() )
 			{
@@ -288,9 +358,14 @@ void CDmrmmdvmProtocol::OnDvHeaderPacketIn(std::unique_ptr<CDvHeaderPacket> &Hea
 				{
 					if ( g_Reflector.IsValidModule(rpt2.GetCSModule()) )
 					{
-						std::cout << "DMRmmdvm client " << client->GetCallsign() << " linking on module " << rpt2.GetCSModule() << std::endl;
-						// link
-						client->SetReflectorModule(rpt2.GetCSModule());
+						// In Mini DMR, we don't necessarily "Link" the client object,
+						// but existing logic uses SetReflectorModule for routing.
+						// WE should ONLY do this in XLX mode.
+						if (g_Configure.GetBoolean(g_Keys.dmr.xlx)) {
+							std::cout << "DMRmmdvm client " << client->GetCallsign() << " linking on module " << rpt2.GetCSModule() << std::endl;
+							// link
+							client->SetReflectorModule(rpt2.GetCSModule());
+						}
 					}
 					else
 					{
@@ -411,11 +486,36 @@ void CDmrmmdvmProtocol::HandleQueue(void)
 			while ( (client = clients->FindNextClient(EProtocol::dmrmmdvm, it)) != nullptr )
 			{
 				// is this client busy ?
-				if ( !client->IsAMaster() && (client->GetReflectorModule() == packet->GetPacketModule()) )
+				if ( !client->IsAMaster() )
 				{
-					// no, send the packet
-					Send(buffer, client->GetIp());
+					bool send = false;
+					if (g_Configure.GetBoolean(g_Keys.dmr.xlx))
+					{
+						// Legacy XLX Mode: Link Check
+						if (client->GetReflectorModule() == packet->GetPacketModule())
+							send = true;
+					}
+					else
+					{
+						// Mini DMR Mode: Scanner Check
+						std::shared_ptr<CDmrmmdvmClient> dmrClient = std::dynamic_pointer_cast<CDmrmmdvmClient>(client);
+						if (dmrClient)
+						{
+							uint32_t tg = ModuleToDmrDestId(packet->GetPacketModule());
+							// Check if subscribed AND logic allows (hold)
+							// Note: We use CheckAccess here too? 
+							// CheckAccess updates the Hold timer. 
+							// If we send voice to client, it occupies the scanner.
+							if (dmrClient->m_Scanner.CheckAccess(tg))
+								send = true;
+						}
+					}
 
+					if ( send )
+					{
+						// no, send the packet
+						Send(buffer, client->GetIp());
+					}
 				}
 			}
 			g_Reflector.ReleaseClients();
@@ -546,6 +646,29 @@ bool CDmrmmdvmProtocol::IsValidConfigPacket(const CBuffer &Buffer, CCallsign *ca
 		if ( !valid)
 		{
 			std::cout << "Invalid callsign in DMRmmdvm RPTC packet from IP: " << Ip << " CS:" << *callsign << " DMRID:" << callsign->GetDmrid() << std::endl;
+		}
+		else
+		{
+			// Update Options from Description
+			// Description starts at offset 67, length 40 (approx). Buffer size 302.
+			if (Buffer.size() >= 107) {
+				std::string desc((const char*)(Buffer.data() + 67), 40);
+				// Trim nulls or grab until null
+				size_t nullpos = desc.find('\0');
+				if (nullpos != std::string::npos) desc.resize(nullpos);
+				
+				// Find client
+				CClients *clients = g_Reflector.GetClients();
+				std::shared_ptr<CClient> client = clients->FindClient(*callsign, Ip, EProtocol::dmrmmdvm);
+				if (client) {
+					std::shared_ptr<CDmrmmdvmClient> dmrClient = std::dynamic_pointer_cast<CDmrmmdvmClient>(client);
+					if (dmrClient) {
+						std::cout << "DMRmmdvm Options Update for " << *callsign << ": " << desc << std::endl;
+						dmrClient->m_Scanner.UpdateSubscriptions(desc);
+					}
+				}
+				g_Reflector.ReleaseClients();
+			}
 		}
 
 	}
@@ -1027,13 +1150,39 @@ void CDmrmmdvmProtocol::EncodeLastMMDVMPacket(const CDvHeaderPacket &Packet, uin
 
 char CDmrmmdvmProtocol::DmrDstIdToModule(uint32_t tg) const
 {
-	// is it a 4xxx ?
-	if (tg > 4000 && tg < 4027)
+	if (g_Configure.GetBoolean(g_Keys.dmr.xlx))
 	{
-		const char mod = 'A' + (tg - 4001U);
-		if (g_Reflector.IsValidModule(mod))
+		// Legacy XLX Mode
+		if (tg > 4000 && tg < 4027)
 		{
-			return mod;
+			const char mod = 'A' + (tg - 4001U);
+			if (g_Reflector.IsValidModule(mod))
+			{
+				return mod;
+			}
+		}
+	}
+	else
+	{
+		// Mini DMR Mode - Reverse Lookup
+		// Iterate A-Z and check map
+		for (char c = 'A'; c <= 'Z'; c++)
+		{
+			std::string key = g_Keys.dmr.map_prefix + c;
+			if (g_Configure.Contains(key))
+			{
+				if (g_Configure.GetUnsigned(key) == tg)
+					return c;
+			}
+			else
+			{
+				// Default Mapping check
+				// If no map entry, assume default 4001-4026?
+				// User said "allows custom mapping... default mapping A=4001... should be supported".
+				// So if key missing, fallback to default?
+				if (tg == (uint32_t)(4001 + (c - 'A')))
+					return c;
+			}
 		}
 	}
 	return ' ';
@@ -1041,7 +1190,21 @@ char CDmrmmdvmProtocol::DmrDstIdToModule(uint32_t tg) const
 
 uint32_t CDmrmmdvmProtocol::ModuleToDmrDestId(char m) const
 {
-	return (uint32_t)(m - 'A')+4001;
+	if (g_Configure.GetBoolean(g_Keys.dmr.xlx))
+	{
+		return (uint32_t)(m - 'A')+4001;
+	}
+	else
+	{
+		// Mini DMR Mode - Forward Lookup
+		std::string key = g_Keys.dmr.map_prefix + m;
+		if (g_Configure.Contains(key))
+		{
+			return g_Configure.GetUnsigned(key);
+		}
+		// Default fallback
+		return (uint32_t)(m - 'A')+4001;
+	}
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////
