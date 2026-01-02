@@ -14,9 +14,10 @@
 CDMRScanner::CDMRScanner() :
 	m_SingleMode(false),
 	m_DefaultTimeout(600),
-	m_HoldTime(5),
-	m_CurrentScanTG(0)
+	m_HoldTime(5)
 {
+    m_CurrentScanTG[0] = 0;
+    m_CurrentScanTG[1] = 0;
 }
 
 CDMRScanner::~CDMRScanner()
@@ -155,7 +156,8 @@ void CDMRScanner::ClearSubscriptions()
 {
 	std::lock_guard<std::recursive_mutex> lock(m_Mutex);
 	m_Subscriptions.clear();
-	m_CurrentScanTG = 0;
+	m_CurrentScanTG[0] = 0;
+    m_CurrentScanTG[1] = 0;
 }
 
 bool CDMRScanner::IsSubscribed(unsigned int tgid) const
