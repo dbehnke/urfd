@@ -50,7 +50,7 @@ public:
 	unsigned int GetFirstSubscription() const;
 	unsigned int GetSubscriptionSlot(unsigned int tgid) const;
 	void GetActiveTalkgroups(std::vector<unsigned int>& tgs) const;
-	unsigned int GetCurrentScanTG() const { return m_CurrentScanTG; }
+	unsigned int GetCurrentScanTG(int slot) const { return (slot >= 1 && slot <= 2) ? m_CurrentScanTG[slot-1] : 0; }
 
 private:
 	mutable std::recursive_mutex m_Mutex;
