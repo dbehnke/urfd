@@ -337,22 +337,24 @@ void CDmrmmdvmProtocol::OnDvHeaderPacketIn(std::unique_ptr<CDvHeaderPacket> &Hea
 						// Actually buffer parsing did it.
 						// We don't have slot easily available here except from previous context?
 						// Buffer parsing sets 'header' and 'cmd'.
-						// Let's assume Slot 2 for now or try to get it.
-						// Or just subscribe on BOTH slots or generic? Scanner manages per slot.
-						// Ideally we need the slot.
-						// But 'OnDvHeaderPacketIn' signature doesn't pass slot.
-						// The caller 'Task' has 'uiSlot'.
-						// Maybe we should pass slot to OnDvHeaderPacketIn?
-						// Or just use default/wildcard.
-						// For now, let's assume Timeslot 2 (Reflector) or try to deduce.
-						// We'll use 0 (any) if Scanner supports it, or parse.
+						// Mini DMR Mode: Scanner Check
+						// We need to know which slot the user is transmitting on.
+						// The packet doesn't explicitly tell us (it's embedded in obscure bits or implicit).
+						// However, if the user is transmitting on TG X, they MUST be subscribed to TG X.
+						// So we can look up the slot from the scanner!
+						int slot = dmrClient->m_Scanner.GetSubscriptionSlot(tg);
+						if (slot == 0) slot = 2; // Default to TS2 if not found (e.g. initial PTT)
+
+						// Auto-subscribe if not subscribed? 
+						// If slot was 0, it means not subscribed. We should probably auto-subscribe.
+						// But which slot? Usually TS2 is safe default for Hotspots.
+						if (slot == 2 && dmrClient->m_Scanner.GetSubscriptionSlot(tg) == 0) {
+							 dmrClient->m_Scanner.AddSubscription(tg, 2, timeout);
+						}
 						
-						dmrClient->m_Scanner.AddSubscription(tg, 2, timeout); // Defaulting to TS2 for voice
-						
-						// Check again
-						if (!dmrClient->m_Scanner.CheckAccess(tg)) {
-							// Blocked (Held by another TG)
-							// Drop packet (return)
+						// Check Access on the specific slot
+						if (!dmrClient->m_Scanner.CheckAccess(tg, slot)) {
+							// Blocked (Held by another TG on this slot)
 							g_Reflector.ReleaseClients();
 							return;
 						}
