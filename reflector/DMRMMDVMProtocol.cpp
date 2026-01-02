@@ -676,11 +676,17 @@ bool CDmrmmdvmProtocol::IsValidConfigPacket(const CBuffer &Buffer, CCallsign *ca
 				if (client) {
 					std::shared_ptr<CDmrmmdvmClient> dmrClient = std::dynamic_pointer_cast<CDmrmmdvmClient>(client);
 					if (dmrClient) {
-						std::cout << "DMRmmdvm Options Update for " << *callsign << ": " << desc << std::endl;
-						dmrClient->m_Scanner.UpdateSubscriptions(desc);
+						std::cout << "DMRmmdvm Options Update for " << client->GetCallsign() << ": " << desc << std::endl;
+					dmrClient->m_Scanner.UpdateSubscriptions(desc);
+					// FIX: Update Visual Module based on First Subscription
+					uint32_t firstTG = dmrClient->m_Scanner.GetFirstSubscription();
+					if (firstTG > 0) {
+						char mod = DmrDstIdToModule(firstTG);
+						if (mod != ' ') dmrClient->SetReflectorModule(mod);
 					}
 				}
-				g_Reflector.ReleaseClients();
+			}
+			g_Reflector.ReleaseClients();
 			}
 		}
 
@@ -713,8 +719,14 @@ bool CDmrmmdvmProtocol::IsValidOptionPacket(const CBuffer &Buffer, CCallsign *ca
 			if (client) {
 				std::shared_ptr<CDmrmmdvmClient> dmrClient = std::dynamic_pointer_cast<CDmrmmdvmClient>(client);
 				if (dmrClient) {
-					std::cout << "DMRmmdvm RPTO Options for " << *callsign << ": " << options << std::endl;
+					std::cout << "DMRmmdvm RPTO Options for " << client->GetCallsign() << ": " << options << std::endl;
 					dmrClient->m_Scanner.UpdateSubscriptions(options);
+					// FIX: Update Visual Module based on First Subscription
+					uint32_t firstTG = dmrClient->m_Scanner.GetFirstSubscription();
+					if (firstTG > 0) {
+						char mod = DmrDstIdToModule(firstTG);
+						if (mod != ' ') dmrClient->SetReflectorModule(mod);
+					}
 				}
 			}
 			g_Reflector.ReleaseClients();

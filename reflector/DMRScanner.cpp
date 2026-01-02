@@ -226,3 +226,18 @@ void CDMRScanner::cleanupExpired()
         m_CurrentScanTG = 0;
     }
 }
+
+unsigned int CDMRScanner::GetFirstSubscription() const
+{
+	std::lock_guard<std::recursive_mutex> lock(m_Mutex);
+    
+    // Check TS2 first (Standard DMRReflector usually)
+    if (m_Subscriptions.count(2) && !m_Subscriptions.at(2).empty()) return m_Subscriptions.at(2).front().tgid;
+    if (m_Subscriptions.count(1) && !m_Subscriptions.at(1).empty()) return m_Subscriptions.at(1).front().tgid;
+    
+    // Check any
+    for(const auto& p : m_Subscriptions) {
+        if (!p.second.empty()) return p.second.front().tgid;
+    }
+    return 0;
+}

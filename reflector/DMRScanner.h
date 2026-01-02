@@ -45,7 +45,8 @@ public:
 	// Returns true if packet with this TG should be processed
 	bool CheckAccess(unsigned int tgid);
 
-	// Getters for testing
+	// Getters
+	unsigned int GetFirstSubscription() const;
 	unsigned int GetCurrentScanTG() const { return m_CurrentScanTG; }
 
 private:
