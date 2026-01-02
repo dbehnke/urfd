@@ -460,22 +460,32 @@ void CDmrmmdvmProtocol::HandleQueue(void)
 			m_StreamsCache[mod].m_dvHeader = CDvHeaderPacket((const CDvHeaderPacket &)*packet.get());
 			m_StreamsCache[mod].m_uiSeqId = 0;
 
+            // Calculate Destination ID based on Module (XLX or Mini DMR logic)
+            uint32_t tg = ModuleToDmrDestId(packet->GetPacketModule());
+
 			// encode it
-			EncodeMMDVMHeaderPacket((CDvHeaderPacket &)*packet.get(), m_StreamsCache[mod].m_uiSeqId, 1, &bufferTS1);
-			EncodeMMDVMHeaderPacket((CDvHeaderPacket &)*packet.get(), m_StreamsCache[mod].m_uiSeqId, 2, &bufferTS2);
+			EncodeMMDVMHeaderPacket((CDvHeaderPacket &)*packet.get(), m_StreamsCache[mod].m_uiSeqId, tg, 1, &bufferTS1);
+			EncodeMMDVMHeaderPacket((CDvHeaderPacket &)*packet.get(), m_StreamsCache[mod].m_uiSeqId, tg, 2, &bufferTS2);
 			m_StreamsCache[mod].m_uiSeqId = 1;
+
+            // Store TG in cache for subsequent frames? Or recalculate?
+            // ModuleToDmrDestId is fast enough.
 		}
 		// check if it's a last frame
 		else if ( packet->IsLastPacket() )
 		{
+            uint32_t tg = ModuleToDmrDestId(packet->GetPacketModule());
+
 			// encode it
-			EncodeLastMMDVMPacket(m_StreamsCache[mod].m_dvHeader, m_StreamsCache[mod].m_uiSeqId, 1, &bufferTS1);
-			EncodeLastMMDVMPacket(m_StreamsCache[mod].m_dvHeader, m_StreamsCache[mod].m_uiSeqId, 2, &bufferTS2);
+			EncodeLastMMDVMPacket(m_StreamsCache[mod].m_dvHeader, m_StreamsCache[mod].m_uiSeqId, tg, 1, &bufferTS1);
+			EncodeLastMMDVMPacket(m_StreamsCache[mod].m_dvHeader, m_StreamsCache[mod].m_uiSeqId, tg, 2, &bufferTS2);
 			m_StreamsCache[mod].m_uiSeqId = (m_StreamsCache[mod].m_uiSeqId + 1) & 0xFF;
 		}
 		// otherwise, just a regular DV frame
 		else
 		{
+            uint32_t tg = ModuleToDmrDestId(packet->GetPacketModule());
+
 			// update local stream cache or send triplet when needed
 			switch ( packet->GetDmrPacketSubid() )
 			{
@@ -486,8 +496,8 @@ void CDmrmmdvmProtocol::HandleQueue(void)
 				m_StreamsCache[mod].m_dvFrame1 = CDvFramePacket((const CDvFramePacket &)*packet.get());
 				break;
 			case 3:
-				EncodeMMDVMPacket(m_StreamsCache[mod].m_dvHeader, m_StreamsCache[mod].m_dvFrame0, m_StreamsCache[mod].m_dvFrame1, (const CDvFramePacket &)*packet.get(), m_StreamsCache[mod].m_uiSeqId, 1, &bufferTS1);
-				EncodeMMDVMPacket(m_StreamsCache[mod].m_dvHeader, m_StreamsCache[mod].m_dvFrame0, m_StreamsCache[mod].m_dvFrame1, (const CDvFramePacket &)*packet.get(), m_StreamsCache[mod].m_uiSeqId, 2, &bufferTS2);
+				EncodeMMDVMPacket(m_StreamsCache[mod].m_dvHeader, m_StreamsCache[mod].m_dvFrame0, m_StreamsCache[mod].m_dvFrame1, (const CDvFramePacket &)*packet.get(), m_StreamsCache[mod].m_uiSeqId, tg, 1, &bufferTS1);
+				EncodeMMDVMPacket(m_StreamsCache[mod].m_dvHeader, m_StreamsCache[mod].m_dvFrame0, m_StreamsCache[mod].m_dvFrame1, (const CDvFramePacket &)*packet.get(), m_StreamsCache[mod].m_uiSeqId, tg, 2, &bufferTS2);
 				m_StreamsCache[mod].m_uiSeqId = (m_StreamsCache[mod].m_uiSeqId + 1) & 0xFF;
 				break;
 			default:
@@ -502,6 +512,12 @@ void CDmrmmdvmProtocol::HandleQueue(void)
 			CClients *clients = g_Reflector.GetClients();
 			auto it = clients->begin();
 			std::shared_ptr<CClient>client = nullptr;
+            
+            // Calculate TG again for convenience or use from above scope?
+            // The logic above is inside if/else blocks.
+            // Recalculate is safest and clean.
+            uint32_t tg = ModuleToDmrDestId(packet->GetPacketModule());
+
 			while ( (client = clients->FindNextClient(EProtocol::dmrmmdvm, it)) != nullptr )
 			{
 				// is this client busy ?
@@ -521,7 +537,7 @@ void CDmrmmdvmProtocol::HandleQueue(void)
 						std::shared_ptr<CDmrmmdvmClient> dmrClient = std::dynamic_pointer_cast<CDmrmmdvmClient>(client);
 						if (dmrClient)
 						{
-							uint32_t tg = ModuleToDmrDestId(packet->GetPacketModule());
+							// uint32_t tg = ModuleToDmrDestId(packet->GetPacketModule()); // Already calculated
 							
 							// Check Access for each slot independently
                             // This allows simultaneous streams on TS1 and TS2
@@ -1038,7 +1054,7 @@ void CDmrmmdvmProtocol::EncodeClosePacket(CBuffer *Buffer, std::shared_ptr<CClie
 }
 
 
-bool CDmrmmdvmProtocol::EncodeMMDVMHeaderPacket(const CDvHeaderPacket &Packet, uint8_t seqid, uint8_t slot, CBuffer *Buffer) const
+bool CDmrmmdvmProtocol::EncodeMMDVMHeaderPacket(const CDvHeaderPacket &Packet, uint8_t seqid, uint32_t dstId, uint8_t slot, CBuffer *Buffer) const
 {
 	uint8_t tag[] = { 'D','M','R','D' };
 
@@ -1050,9 +1066,8 @@ bool CDmrmmdvmProtocol::EncodeMMDVMHeaderPacket(const CDvHeaderPacket &Packet, u
 	// uiSrcId
 	uint32_t uiSrcId = Packet.GetMyCallsign().GetDmrid();
 	AppendDmrIdToBuffer(Buffer, uiSrcId);
-	// uiDstId = TG9
-	uint32_t uiDstId = 9; // ModuleToDmrDestId(Packet.GetRpt2Module());
-	AppendDmrIdToBuffer(Buffer, uiDstId);
+	// uiDstId
+	AppendDmrIdToBuffer(Buffer, dstId);
 	// uiRptrId
 	uint32_t uiRptrId = Packet.GetRpt1Callsign().GetDmrid();
 	AppendDmrRptrIdToBuffer(Buffer, uiRptrId);
@@ -1067,7 +1082,7 @@ bool CDmrmmdvmProtocol::EncodeMMDVMHeaderPacket(const CDvHeaderPacket &Packet, u
 	Buffer->Append((uint32_t)uiStreamId);
 
 	// Payload
-	AppendVoiceLCToBuffer(Buffer, uiSrcId, uiDstId);
+	AppendVoiceLCToBuffer(Buffer, uiSrcId, dstId);
 
 	// BER
 	Buffer->Append((uint8_t)0);
@@ -1079,7 +1094,7 @@ bool CDmrmmdvmProtocol::EncodeMMDVMHeaderPacket(const CDvHeaderPacket &Packet, u
 	return true;
 }
 
-void CDmrmmdvmProtocol::EncodeMMDVMPacket(const CDvHeaderPacket &Header, const CDvFramePacket &DvFrame0, const CDvFramePacket &DvFrame1, const CDvFramePacket &DvFrame2, uint8_t seqid, uint8_t slot, CBuffer *Buffer) const
+void CDmrmmdvmProtocol::EncodeMMDVMPacket(const CDvHeaderPacket &Header, const CDvFramePacket &DvFrame0, const CDvFramePacket &DvFrame1, const CDvFramePacket &DvFrame2, uint8_t seqid, uint32_t dstId, uint8_t slot, CBuffer *Buffer) const
 {
 	uint8_t tag[] = { 'D','M','R','D' };
 	Buffer->Set(tag, sizeof(tag));
@@ -1107,8 +1122,7 @@ void CDmrmmdvmProtocol::EncodeMMDVMPacket(const CDvHeaderPacket &Header, const C
 
 	AppendDmrIdToBuffer(Buffer, uiSrcId);
 	// uiDstId
-	uint32_t uiDstId = ModuleToDmrDestId(Header.GetRpt2Module());
-	AppendDmrIdToBuffer(Buffer, uiDstId);
+	AppendDmrIdToBuffer(Buffer, dstId);
 	// uiRptrId
 	uint32_t uiRptrId = Header.GetRpt1Callsign().GetDmrid();
 	AppendDmrRptrIdToBuffer(Buffer, uiRptrId);
@@ -1158,7 +1172,7 @@ void CDmrmmdvmProtocol::EncodeMMDVMPacket(const CDvHeaderPacket &Header, const C
 }
 
 
-void CDmrmmdvmProtocol::EncodeLastMMDVMPacket(const CDvHeaderPacket &Packet, uint8_t seqid, uint8_t slot, CBuffer *Buffer) const
+void CDmrmmdvmProtocol::EncodeLastMMDVMPacket(const CDvHeaderPacket &Packet, uint8_t seqid, uint32_t dstId, uint8_t slot, CBuffer *Buffer) const
 {
 	uint8_t tag[] = { 'D','M','R','D' };
 
@@ -1171,8 +1185,7 @@ void CDmrmmdvmProtocol::EncodeLastMMDVMPacket(const CDvHeaderPacket &Packet, uin
 	uint32_t uiSrcId = Packet.GetMyCallsign().GetDmrid();
 	AppendDmrIdToBuffer(Buffer, uiSrcId);
 	// uiDstId
-	uint32_t uiDstId = ModuleToDmrDestId(Packet.GetRpt2Module());
-	AppendDmrIdToBuffer(Buffer, uiDstId);
+	AppendDmrIdToBuffer(Buffer, dstId);
 	// uiRptrId
 	uint32_t uiRptrId = Packet.GetRpt1Callsign().GetDmrid();
 	AppendDmrRptrIdToBuffer(Buffer, uiRptrId);
@@ -1187,7 +1200,7 @@ void CDmrmmdvmProtocol::EncodeLastMMDVMPacket(const CDvHeaderPacket &Packet, uin
 	Buffer->Append((uint32_t)uiStreamId);
 
 	// Payload
-	AppendTerminatorLCToBuffer(Buffer, uiSrcId, uiDstId);
+	AppendTerminatorLCToBuffer(Buffer, uiSrcId, dstId);
 
 	// BER
 	Buffer->Append((uint8_t)0);
