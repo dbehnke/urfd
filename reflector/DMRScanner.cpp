@@ -182,6 +182,22 @@ bool CDMRScanner::IsSubscribed(unsigned int tgid) const
 	return false;
 }
 
+bool CDMRScanner::IsSubscribed(unsigned int tgid, int timeslot) const
+{
+	std::lock_guard<std::recursive_mutex> lock(m_Mutex);
+    std::time_t now = std::time(nullptr);
+    
+    if (m_Subscriptions.count(timeslot)) {
+        for (const auto& sub : m_Subscriptions.at(timeslot)) {
+            if (sub.tgid == tgid) {
+			    if (sub.timeout > 0 && now > sub.expiry) continue;
+				return true;
+            }
+        }
+    }
+    return false;
+}
+
 bool CDMRScanner::CheckAccess(unsigned int tgid)
 {
 	std::lock_guard<std::recursive_mutex> lock(m_Mutex);
@@ -238,6 +254,25 @@ unsigned int CDMRScanner::GetFirstSubscription() const
     // Check any
     for(const auto& p : m_Subscriptions) {
         if (!p.second.empty()) return p.second.front().tgid;
+    }
+    return 0;
+}
+
+unsigned int CDMRScanner::GetSubscriptionSlot(unsigned int tgid) const
+{
+	std::lock_guard<std::recursive_mutex> lock(m_Mutex);
+    
+    // Check TS1
+    if (m_Subscriptions.count(1)) {
+        for(const auto& s : m_Subscriptions.at(1)) {
+            if (s.tgid == tgid) return 1;
+        }
+    }
+    // Check TS2
+    if (m_Subscriptions.count(2)) {
+        for(const auto& s : m_Subscriptions.at(2)) {
+            if (s.tgid == tgid) return 2;
+        }
     }
     return 0;
 }

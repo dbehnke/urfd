@@ -98,13 +98,21 @@ graph TD
     Src[Source Protocol e.g. YSF] -->|Audio on Module B| Core[Reflector Core]
     Core -->|Queue Packet| DMRQueue[DMRMMDVMProtocol::HandleQueue]
     
-    DMRQueue -->|Get Packet Module e.g. B| MapLookup{Mini DMR Mode?}
+    subgraph "Handle Queue Logic"
+        DMRQueue --> Encode1[Encode Buffer TS1]
+        DMRQueue --> Encode2[Encode Buffer TS2]
+        
+        Encode1 --> ClientCheck{Client Subscribed?}
+        Encode2 --> ClientCheck
+        
+        ClientCheck -->|TG + TS1| Send1[Send TS1 Buffer]
+        ClientCheck -->|TG + TS2| Send2[Send TS2 Buffer]
+        ClientCheck -->|No| Drop[Drop]
+    end
     
-    %% XLX Logic
-    MapLookup -->|No| LegacyCheck{Client Linked to B?}
-    LegacyCheck -->|Yes| SendLegacy[Send TG 9]
-    
-    %% Mini DMR Logic
+    Send1 --> Client[MMDVM Client]
+    Send2 --> Client
+```    %% Mini DMR Logic
     MapLookup -->|Yes| Map[Map Module B -> TG 4002]
     Map -->|TG 4002| ScannerCheck{Scanner Check}
     

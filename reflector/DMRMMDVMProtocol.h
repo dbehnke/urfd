@@ -90,9 +90,9 @@ protected:
 	void EncodeConnectAckPacket(CBuffer *, const CCallsign &, uint32_t);
 	void EncodeNackPacket(CBuffer *, const CCallsign &);
 	void EncodeClosePacket(CBuffer *, std::shared_ptr<CClient>);
-	bool EncodeMMDVMHeaderPacket(const CDvHeaderPacket &, uint8_t, CBuffer *) const;
-	void EncodeMMDVMPacket(const CDvHeaderPacket &, const CDvFramePacket &, const CDvFramePacket &, const CDvFramePacket &, uint8_t, CBuffer *) const;
-	void EncodeLastMMDVMPacket(const CDvHeaderPacket &, uint8_t, CBuffer *) const;
+	bool EncodeMMDVMHeaderPacket(const CDvHeaderPacket &, uint8_t, uint8_t, CBuffer *) const;
+	void EncodeMMDVMPacket(const CDvHeaderPacket &, const CDvFramePacket &, const CDvFramePacket &, const CDvFramePacket &, uint8_t, uint8_t, CBuffer *) const;
+	void EncodeLastMMDVMPacket(const CDvHeaderPacket &, uint8_t, uint8_t, CBuffer *) const;
 
 	// dmr DstId to Module helper
 	char DmrDstIdToModule(uint32_t) const;

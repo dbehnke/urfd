@@ -40,6 +40,7 @@ public:
 	void RemoveSubscription(unsigned int tgid, int timeslot);
 	void ClearSubscriptions();
 	bool IsSubscribed(unsigned int tgid) const;
+	bool IsSubscribed(unsigned int tgid, int timeslot) const;
 
 	// Packet Access Check (Scanner Logic)
 	// Returns true if packet with this TG should be processed
@@ -47,6 +48,7 @@ public:
 
 	// Getters
 	unsigned int GetFirstSubscription() const;
+	unsigned int GetSubscriptionSlot(unsigned int tgid) const;
 	unsigned int GetCurrentScanTG() const { return m_CurrentScanTG; }
 
 private:

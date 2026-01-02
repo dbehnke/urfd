@@ -12,21 +12,29 @@ In Mini DMR mode, the reflector acts like a **Scanner**.
 
 ```mermaid
 graph TD
-    Client[MMDVM Client] -->|Subscribe TG 3100| Reflector
-    Client -->|Subscribe TG 4001| Reflector
+    Client[MMDVM Client] -->|Subscribe TG 3100 TS1| Reflector
+    Client -->|Subscribe TG 4001 TS2| Reflector
     
     subgraph Reflector Logic
         TrafficA[Traffic on TG 3100] --> Scanner{Scanner Free?}
         TrafficB[Traffic on TG 4001] --> Scanner
         
         Scanner -->|Yes| Lock[Lock onto TG 3100]
-        Lock --> Map[Route to Client]
+        Lock --> Map[Route to Client (TS1)]
         
         Scanner -->|"No (Held by 3100)"| Block[Block TG 4001]
     end
     
     Map --> Client
 ```
+
+### Strict Timeslot Routing
+
+The reflector enforces strict routing based on your subscription:
+
+* If you subscribe to **TG 3100 on TS1**, traffic for TG 3100 will **only** be sent to your radio on **Timeslot 1**.
+* If you subscribe to **TG 4001 on TS2**, traffic for TG 4001 will **only** be sent to your radio on **Timeslot 2**.
+* This allows a single client to monitor different Talkgroups on different Timeslots simultaneously (if the Scanner is not held by one).
 
 ## Configuration
 

@@ -446,8 +446,9 @@ void CDmrmmdvmProtocol::HandleQueue(void)
 		// get our sender's id
 		const auto mod = packet->GetPacketModule();
 
-		// encode
-		CBuffer buffer;
+		// encode buffers for both slots
+		CBuffer bufferTS1;
+		CBuffer bufferTS2;
 
 		// check if it's header
 		if ( packet->IsDvHeader() )
@@ -458,14 +459,16 @@ void CDmrmmdvmProtocol::HandleQueue(void)
 			m_StreamsCache[mod].m_uiSeqId = 0;
 
 			// encode it
-			EncodeMMDVMHeaderPacket((CDvHeaderPacket &)*packet.get(), m_StreamsCache[mod].m_uiSeqId, &buffer);
+			EncodeMMDVMHeaderPacket((CDvHeaderPacket &)*packet.get(), m_StreamsCache[mod].m_uiSeqId, 1, &bufferTS1);
+			EncodeMMDVMHeaderPacket((CDvHeaderPacket &)*packet.get(), m_StreamsCache[mod].m_uiSeqId, 2, &bufferTS2);
 			m_StreamsCache[mod].m_uiSeqId = 1;
 		}
 		// check if it's a last frame
 		else if ( packet->IsLastPacket() )
 		{
 			// encode it
-			EncodeLastMMDVMPacket(m_StreamsCache[mod].m_dvHeader, m_StreamsCache[mod].m_uiSeqId, &buffer);
+			EncodeLastMMDVMPacket(m_StreamsCache[mod].m_dvHeader, m_StreamsCache[mod].m_uiSeqId, 1, &bufferTS1);
+			EncodeLastMMDVMPacket(m_StreamsCache[mod].m_dvHeader, m_StreamsCache[mod].m_uiSeqId, 2, &bufferTS2);
 			m_StreamsCache[mod].m_uiSeqId = (m_StreamsCache[mod].m_uiSeqId + 1) & 0xFF;
 		}
 		// otherwise, just a regular DV frame
@@ -481,7 +484,8 @@ void CDmrmmdvmProtocol::HandleQueue(void)
 				m_StreamsCache[mod].m_dvFrame1 = CDvFramePacket((const CDvFramePacket &)*packet.get());
 				break;
 			case 3:
-				EncodeMMDVMPacket(m_StreamsCache[mod].m_dvHeader, m_StreamsCache[mod].m_dvFrame0, m_StreamsCache[mod].m_dvFrame1, (const CDvFramePacket &)*packet.get(), m_StreamsCache[mod].m_uiSeqId, &buffer);
+				EncodeMMDVMPacket(m_StreamsCache[mod].m_dvHeader, m_StreamsCache[mod].m_dvFrame0, m_StreamsCache[mod].m_dvFrame1, (const CDvFramePacket &)*packet.get(), m_StreamsCache[mod].m_uiSeqId, 1, &bufferTS1);
+				EncodeMMDVMPacket(m_StreamsCache[mod].m_dvHeader, m_StreamsCache[mod].m_dvFrame0, m_StreamsCache[mod].m_dvFrame1, (const CDvFramePacket &)*packet.get(), m_StreamsCache[mod].m_uiSeqId, 2, &bufferTS2);
 				m_StreamsCache[mod].m_uiSeqId = (m_StreamsCache[mod].m_uiSeqId + 1) & 0xFF;
 				break;
 			default:
@@ -490,7 +494,7 @@ void CDmrmmdvmProtocol::HandleQueue(void)
 		}
 
 		// send it
-		if ( buffer.size() > 0 )
+		if ( bufferTS1.size() > 0 || bufferTS2.size() > 0 )
 		{
 			// and push it to all our clients linked to the module and who are not streaming in
 			CClients *clients = g_Reflector.GetClients();
@@ -501,12 +505,13 @@ void CDmrmmdvmProtocol::HandleQueue(void)
 				// is this client busy ?
 				if ( !client->IsAMaster() )
 				{
-					bool send = false;
 					if (g_Configure.GetBoolean(g_Keys.dmr.xlx))
 					{
 						// Legacy XLX Mode: Link Check
+						// Default to TS2 buffer for XLX
+						// Or should we support both slots in XLX? Usually Reflector runs on TS2.
 						if (client->GetReflectorModule() == packet->GetPacketModule())
-							send = true;
+							Send(bufferTS2, client->GetIp()); 
 					}
 					else
 					{
@@ -515,19 +520,17 @@ void CDmrmmdvmProtocol::HandleQueue(void)
 						if (dmrClient)
 						{
 							uint32_t tg = ModuleToDmrDestId(packet->GetPacketModule());
-							// Check if subscribed AND logic allows (hold)
-							// Note: We use CheckAccess here too? 
-							// CheckAccess updates the Hold timer. 
-							// If we send voice to client, it occupies the scanner.
-							if (dmrClient->m_Scanner.CheckAccess(tg))
-								send = true;
+							
+							// Check General Access (Manages Hold Timer)
+							if (dmrClient->m_Scanner.CheckAccess(tg)) {
+								// Strict Slot Routing
+								if (dmrClient->m_Scanner.IsSubscribed(tg, 1) && bufferTS1.size() > 0)
+									Send(bufferTS1, client->GetIp());
+								
+								if (dmrClient->m_Scanner.IsSubscribed(tg, 2) && bufferTS2.size() > 0)
+									Send(bufferTS2, client->GetIp());
+							}
 						}
-					}
-
-					if ( send )
-					{
-						// no, send the packet
-						Send(buffer, client->GetIp());
 					}
 				}
 			}
@@ -1031,7 +1034,7 @@ void CDmrmmdvmProtocol::EncodeClosePacket(CBuffer *Buffer, std::shared_ptr<CClie
 }
 
 
-bool CDmrmmdvmProtocol::EncodeMMDVMHeaderPacket(const CDvHeaderPacket &Packet, uint8_t seqid, CBuffer *Buffer) const
+bool CDmrmmdvmProtocol::EncodeMMDVMHeaderPacket(const CDvHeaderPacket &Packet, uint8_t seqid, uint8_t slot, CBuffer *Buffer) const
 {
 	uint8_t tag[] = { 'D','M','R','D' };
 
@@ -1052,7 +1055,7 @@ bool CDmrmmdvmProtocol::EncodeMMDVMHeaderPacket(const CDvHeaderPacket &Packet, u
 	// uiBitField
 	uint8_t uiBitField =
 		(DMRMMDVM_FRAMETYPE_DATASYNC << 4) |
-		((DMRMMDVM_REFLECTOR_SLOT == DMR_SLOT2) ? 0x80 : 0x00) |
+		((slot == 2) ? 0x80 : 0x00) |
 		MMDVM_SLOTTYPE_HEADER;
 	Buffer->Append((uint8_t)uiBitField);
 	// uiStreamId
@@ -1072,7 +1075,7 @@ bool CDmrmmdvmProtocol::EncodeMMDVMHeaderPacket(const CDvHeaderPacket &Packet, u
 	return true;
 }
 
-void CDmrmmdvmProtocol::EncodeMMDVMPacket(const CDvHeaderPacket &Header, const CDvFramePacket &DvFrame0, const CDvFramePacket &DvFrame1, const CDvFramePacket &DvFrame2, uint8_t seqid, CBuffer *Buffer) const
+void CDmrmmdvmProtocol::EncodeMMDVMPacket(const CDvHeaderPacket &Header, const CDvFramePacket &DvFrame0, const CDvFramePacket &DvFrame1, const CDvFramePacket &DvFrame2, uint8_t seqid, uint8_t slot, CBuffer *Buffer) const
 {
 	uint8_t tag[] = { 'D','M','R','D' };
 	Buffer->Set(tag, sizeof(tag));
@@ -1107,7 +1110,7 @@ void CDmrmmdvmProtocol::EncodeMMDVMPacket(const CDvHeaderPacket &Header, const C
 	AppendDmrRptrIdToBuffer(Buffer, uiRptrId);
 	// uiBitField
 	uint8_t uiBitField =
-		((DMRMMDVM_REFLECTOR_SLOT == DMR_SLOT2) ? 0x80 : 0x00);
+		((slot == 2) ? 0x80 : 0x00);
 	if ( DvFrame0.GetDmrPacketId() == 0 )
 	{
 		uiBitField |= (DMRMMDVM_FRAMETYPE_VOICESYNC << 4);
@@ -1151,7 +1154,7 @@ void CDmrmmdvmProtocol::EncodeMMDVMPacket(const CDvHeaderPacket &Header, const C
 }
 
 
-void CDmrmmdvmProtocol::EncodeLastMMDVMPacket(const CDvHeaderPacket &Packet, uint8_t seqid, CBuffer *Buffer) const
+void CDmrmmdvmProtocol::EncodeLastMMDVMPacket(const CDvHeaderPacket &Packet, uint8_t seqid, uint8_t slot, CBuffer *Buffer) const
 {
 	uint8_t tag[] = { 'D','M','R','D' };
 
@@ -1172,7 +1175,7 @@ void CDmrmmdvmProtocol::EncodeLastMMDVMPacket(const CDvHeaderPacket &Packet, uin
 	// uiBitField
 	uint8_t uiBitField =
 		(DMRMMDVM_FRAMETYPE_DATASYNC << 4) |
-		((DMRMMDVM_REFLECTOR_SLOT == DMR_SLOT2) ? 0x80 : 0x00) |
+		((slot == 2) ? 0x80 : 0x00) |
 		MMDVM_SLOTTYPE_TERMINATOR;
 	Buffer->Append((uint8_t)uiBitField);
 	// uiStreamId
