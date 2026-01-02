@@ -62,8 +62,9 @@ private:
 
 	// State
 	std::map<int, std::vector<SSubscription>> m_Subscriptions; // Map Timeslot -> List of Subscriptions
-	unsigned int m_CurrentScanTG;
-	CTimer m_HoldTimer;
+	// Scanner State per slot [0]=TS1, [1]=TS2
+	unsigned int m_CurrentScanTG[2];
+	CTimer m_HoldTimer[2];
 
 	// Helpers
 	void cleanupExpired();
