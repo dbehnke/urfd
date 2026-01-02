@@ -525,6 +525,8 @@ void CDmrmmdvmProtocol::HandleQueue(void)
 							
 							// Check Access for each slot independently
                             // This allows simultaneous streams on TS1 and TS2
+                            if (bufferTS1.size() > 0) std::cout << "DEBUG: Sending TS1 TG " << tg << " to " << client->GetCallsign() << std::endl;
+                            if (bufferTS2.size() > 0) std::cout << "DEBUG: Sending TS2 TG " << tg << " to " << client->GetCallsign() << std::endl;
 							if (bufferTS1.size() > 0 && dmrClient->m_Scanner.CheckAccess(tg, 1)) {
                                 Send(bufferTS1, client->GetIp());
                             }
