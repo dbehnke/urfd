@@ -542,14 +542,22 @@ void CDmrmmdvmProtocol::HandleQueue(void)
 							// uint32_t tg = ModuleToDmrDestId(packet->GetPacketModule()); // Already calculated
 							
 							// Check Access for each slot independently
-                            // This allows simultaneous streams on TS1 and TS2
-                            if (bufferTS1.size() > 0) std::cout << "DEBUG: Sending TS1 TG " << tg << " to " << client->GetCallsign() << std::endl;
-                            if (bufferTS2.size() > 0) std::cout << "DEBUG: Sending TS2 TG " << tg << " to " << client->GetCallsign() << std::endl;
-							if (bufferTS1.size() > 0 && dmrClient->m_Scanner.CheckAccess(tg, 1)) {
+                            bool ts1 = bufferTS1.size() > 0 && dmrClient->m_Scanner.CheckAccess(tg, 1);
+                            bool ts2 = bufferTS2.size() > 0 && dmrClient->m_Scanner.CheckAccess(tg, 2);
+
+                            if (ts1 || ts2) {
+                                std::cout << "DEBUG: Packet Mod=" << packet->GetPacketModule() << " TG=" << tg << " -> Client [" << client->GetCallsign() << "]";
+                                if (ts1 && ts2) std::cout << " Sending TS1 & TS2";
+                                else if (ts1) std::cout << " Sending TS1";
+                                else if (ts2) std::cout << " Sending TS2";
+                                std::cout << std::endl;
+                            }
+
+							if (ts1) {
                                 Send(bufferTS1, client->GetIp());
                             }
 								
-							if (bufferTS2.size() > 0 && dmrClient->m_Scanner.CheckAccess(tg, 2)) {
+							if (ts2) {
                                 Send(bufferTS2, client->GetIp());
                             }
 						}
@@ -1058,6 +1066,9 @@ void CDmrmmdvmProtocol::EncodeClosePacket(CBuffer *Buffer, std::shared_ptr<CClie
 
 bool CDmrmmdvmProtocol::EncodeMMDVMHeaderPacket(const CDvHeaderPacket &Packet, uint8_t seqid, uint32_t dstId, uint8_t slot, CBuffer *Buffer) const
 {
+    // Debug Encode
+    // std::cout << "DEBUG: EncodeHeader dstId=" << dstId << " Slot=" << (int)slot << std::endl;
+
 	uint8_t tag[] = { 'D','M','R','D' };
 
 	Buffer->Set(tag, sizeof(tag));
