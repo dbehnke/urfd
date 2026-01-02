@@ -364,6 +364,13 @@ void CDmrmmdvmProtocol::OnDvHeaderPacketIn(std::unique_ptr<CDvHeaderPacket> &Hea
 						// FIX: Ensure OpenStream sees the client attached to this module
 						client->SetReflectorModule(rpt2.GetCSModule());
 					}
+                    
+                    // Always ensure module is set if we are processing this packet (Access Granted)
+                    // (Actually, if CheckAccess returned true above, we skipped the block.
+                    // So we must set it here to be sure).
+                    // Redundant if inside block? No, if block skipped, we need it.
+                    // So just place it here.
+                    client->SetReflectorModule(rpt2.GetCSModule());
 				}
 			}
 
