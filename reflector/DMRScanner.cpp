@@ -195,6 +195,11 @@ bool CDMRScanner::CheckAccess(unsigned int tgid, int slot)
 {
 	std::lock_guard<std::recursive_mutex> lock(m_Mutex);
 
+    if (slot == 0) {
+        // Check both slots
+        return CheckAccess(tgid, 1) || CheckAccess(tgid, 2);
+    }
+
     if (slot < 1 || slot > 2) return false;
     int idx = slot - 1;
 
