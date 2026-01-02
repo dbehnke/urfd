@@ -198,32 +198,31 @@ bool CDMRScanner::IsSubscribed(unsigned int tgid, int timeslot) const
     return false;
 }
 
-bool CDMRScanner::CheckAccess(unsigned int tgid)
+bool CDMRScanner::CheckAccess(unsigned int tgid, int slot)
 {
 	std::lock_guard<std::recursive_mutex> lock(m_Mutex);
 
+    if (slot < 1 || slot > 2) return false;
+    int idx = slot - 1;
+
 	cleanupExpired();
 
-	if (!IsSubscribed(tgid)) return false;
+	if (!IsSubscribed(tgid, slot)) return false;
 
-	// Scanner Logic
-	if (m_CurrentScanTG != 0) {
-		if (m_CurrentScanTG == tgid) {
-			// Reset Hold
-			m_HoldTimer.start();
+	// Scanner Logic for Slot
+	if (m_CurrentScanTG[idx] != 0) {
+		if (m_CurrentScanTG[idx] == tgid) {
+			m_HoldTimer[idx].start();
 			return true;
 		}
 
-		// Check if hold expired
-		if (m_HoldTimer.time() < m_HoldTime) {
-			// Still holding another TG
+		if (m_HoldTimer[idx].time() < m_HoldTime) {
 			return false;
 		}
 	}
 
-	// Switch to this TG
-	m_CurrentScanTG = tgid;
-	m_HoldTimer.start();
+	m_CurrentScanTG[idx] = tgid;
+	m_HoldTimer[idx].start();
 	return true;
 }
 
@@ -236,11 +235,8 @@ void CDMRScanner::cleanupExpired()
 			[now](const SSubscription& s) { return s.timeout > 0 && now > s.expiry; }), subs.end());
 	}
     
-    // Also reset Scan TG if it was expired (though CheckAccess handles hold, not subscription expiry of current)
-    // If current scan TG expires, we should probably verify it exists?
-    if (m_CurrentScanTG != 0 && !IsSubscribed(m_CurrentScanTG)) {
-        m_CurrentScanTG = 0;
-    }
+    if (m_CurrentScanTG[0] != 0 && !IsSubscribed(m_CurrentScanTG[0], 1)) m_CurrentScanTG[0] = 0;
+    if (m_CurrentScanTG[1] != 0 && !IsSubscribed(m_CurrentScanTG[1], 2)) m_CurrentScanTG[1] = 0;
 }
 
 unsigned int CDMRScanner::GetFirstSubscription() const

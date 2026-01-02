@@ -521,15 +521,15 @@ void CDmrmmdvmProtocol::HandleQueue(void)
 						{
 							uint32_t tg = ModuleToDmrDestId(packet->GetPacketModule());
 							
-							// Check General Access (Manages Hold Timer)
-							if (dmrClient->m_Scanner.CheckAccess(tg)) {
-								// Strict Slot Routing
-								if (dmrClient->m_Scanner.IsSubscribed(tg, 1) && bufferTS1.size() > 0)
-									Send(bufferTS1, client->GetIp());
+							// Check Access for each slot independently
+                            // This allows simultaneous streams on TS1 and TS2
+							if (bufferTS1.size() > 0 && dmrClient->m_Scanner.CheckAccess(tg, 1)) {
+                                Send(bufferTS1, client->GetIp());
+                            }
 								
-								if (dmrClient->m_Scanner.IsSubscribed(tg, 2) && bufferTS2.size() > 0)
-									Send(bufferTS2, client->GetIp());
-							}
+							if (bufferTS2.size() > 0 && dmrClient->m_Scanner.CheckAccess(tg, 2)) {
+                                Send(bufferTS2, client->GetIp());
+                            }
 						}
 					}
 				}
