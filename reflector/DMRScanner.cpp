@@ -271,15 +271,19 @@ void CDMRScanner::GetActiveTalkgroups(std::vector<unsigned int>& tgs) const
 	std::lock_guard<std::recursive_mutex> lock(m_Mutex);
     tgs.clear();
     
+    std::time_t now = std::time(nullptr);
+    
     // Check TS1
     if (m_Subscriptions.count(1)) {
         for(const auto& s : m_Subscriptions.at(1)) {
+            if (!s.isStatic && s.timeout > 0 && now > s.expiry) continue;
             tgs.push_back(s.tgid);
         }
     }
     // Check TS2
     if (m_Subscriptions.count(2)) {
         for(const auto& s : m_Subscriptions.at(2)) {
+            if (!s.isStatic && s.timeout > 0 && now > s.expiry) continue;
             tgs.push_back(s.tgid);
         }
     }

@@ -117,6 +117,8 @@ void CDmrmmdvmClient::JsonReport(nlohmann::json &report)
 
 	// Fallback or Legacy: Use standard module if no specific subscriptions found (or in XLX mode)
 	if (!anySub) {
-		CClient::JsonReport(report);
+		// If no subscriptions and in Mini DMR mode, show as not linked
+        // Do NOT call CClient::JsonReport because it might use stale m_ReflectorModule
+        addNode(' ');
 	}
 }
