@@ -102,6 +102,7 @@ void CDmrmmdvmClient::JsonReport(nlohmann::json &report)
 	auto addNode = [&](char module) {
 		nlohmann::json jclient;
 		jclient["Callsign"] = m_Callsign.GetCS();
+        jclient["DMRID"] = m_Callsign.GetDmrid();
 		jclient["OnModule"] = std::string(1, module);
 		jclient["Protocol"] = GetProtocolName();
         jclient["Subscriptions"] = jSubs;
