@@ -42,7 +42,7 @@ To enable Mini DMR mode, update your `urfd.ini` (or configuration file) in the `
 
 ```ini
 [DMR]
-; Disable legacy XLX behavior
+; Disable legacy XLX behavior (REQUIRED for Dashboard Subscription View)
 XlxCompatibility=false
 
 ; Optional: enforce single subscription per timeslot (default false)
@@ -73,6 +73,7 @@ The easiest way to subscribe to a Talkgroup is to simply **transmit** on it from
 
 * **Action**: Key up (PTT) on `TG 1234`.
 * **Result**: The reflector detects your transmission and automatically subscribes you to `TG 1234` for the configured timeout duration (e.g., 10 minutes).
+* **Renewal**: If you are already subscribed, keying up again will **reset the timeout timer** back to the full duration.
 * **Note**: The first transmission might be muted (Anti-Kerchunk) to prevent noise, but you will immediately be subscribed.
 
 ### 2. Subscribing via Options String
@@ -92,6 +93,15 @@ You can manage subscriptions sent from your MMDVM hotspot/repeater configuration
 ### 4. Talkgroup 9 (Reflector)
 
 * Traffic on **TG 9** is treated as local reflector traffic (linked functionality) if the client is essentially "linked" to a module, but in Mini DMR mode, TG 9 behavior depends on the specific map configuration or defaults. Typically, use specific Talkgroups for wide-area routing.
+
+## Dashboard
+
+The URFD Dashboard includes a dedicated **DMR** page (`/dmr`) to monitor Flexible DMR Mode activity.
+
+* **Active Subscriptions**: Shows all Talkgroups a client is monitoring, along with the specific Timeslot.
+* **Timers**: Displays a real-time countdown for Dynamic Subscriptions. Static subscriptions are marked as `Static`.
+* **DMR ID**: Displays the client's DMR ID alongside their callsign (e.g., `CALLSIGN (3100123)`).
+* **Requirements**: The dashboard requires NO additional configuration. It automatically displays data once `XlxCompatibility=false` is set in the backend config.
 
 ## Troubleshooting
 
