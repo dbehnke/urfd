@@ -362,11 +362,18 @@ void CDmrmmdvmProtocol::OnDvHeaderPacketIn(std::unique_ptr<CDvHeaderPacket> &Hea
 
 						// FIX: Ensure OpenStream sees the client attached to this module
 						client->SetReflectorModule(rpt2.GetCSModule());
-					}
+					} else {
+                        // Access Granted (Already Subscribed) - Renew Timer if Dynamic
+                        unsigned int timeout = g_Configure.GetUnsigned(g_Keys.dmr.timeout);
+                        int slot = dmrClient->m_Scanner.GetSubscriptionSlot(tg);
+                        if (slot != 0) {
+                             dmrClient->m_Scanner.RenewSubscription(tg, slot, timeout);
+                        }
+                    }
                     
                     // Always ensure module is set if we are processing this packet (Access Granted)
                     // DEBUG: Trace Module Assignment
-                    std::cout << "DEBUG: " << client->GetCallsign().GetCS() << " assigned to module " << rpt2.GetCSModule() << std::endl;
+                    // std::cout << "DEBUG: " << client->GetCallsign().GetCS() << " assigned to module " << rpt2.GetCSModule() << std::endl;
                     client->SetReflectorModule(rpt2.GetCSModule());
 				}
 			}

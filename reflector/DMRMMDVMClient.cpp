@@ -52,7 +52,7 @@ bool CDmrmmdvmClient::IsAlive(void) const
 void CDmrmmdvmClient::JsonReport(nlohmann::json &report)
 {
     // DEBUG: Check XLX Mode
-    std::cout << "DEBUG: XLX Mode Comp: " << g_Configure.GetBoolean(g_Keys.dmr.xlx) << std::endl;
+    // std::cout << "DEBUG: XLX Mode Comp: " << g_Configure.GetBoolean(g_Keys.dmr.xlx) << std::endl;
 
 	if (g_Configure.GetBoolean(g_Keys.dmr.xlx)) {
         // Legacy behavior
@@ -140,7 +140,4 @@ void CDmrmmdvmClient::JsonReport(nlohmann::json &report)
 
 	// Always report the client once
     addNode(visualModule);
-    
-    // DEBUG: Print generated subs
-    // std::cout << "DEBUG: " << m_Callsign.GetCS() << " Subs: " << jSubs.dump() << std::endl;
 }

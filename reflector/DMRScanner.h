@@ -39,6 +39,7 @@ public:
 	// Subscription Management
 	void UpdateSubscriptions(const std::string& options);
 	void AddSubscription(unsigned int tgid, int timeslot, unsigned int timeout, bool isStatic = false);
+    void RenewSubscription(unsigned int tgid, int timeslot, unsigned int timeout);
 	void RemoveSubscription(unsigned int tgid, int timeslot);
 	void ClearSubscriptions();
 	bool IsSubscribed(unsigned int tgid) const;

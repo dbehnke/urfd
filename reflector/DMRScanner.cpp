@@ -143,6 +143,20 @@ void CDMRScanner::AddSubscription(unsigned int tgid, int timeslot, unsigned int 
 	m_Subscriptions[timeslot].push_back(sub);
 }
 
+void CDMRScanner::RenewSubscription(unsigned int tgid, int timeslot, unsigned int timeout)
+{
+    std::lock_guard<std::recursive_mutex> lock(m_Mutex);
+    
+    if (m_Subscriptions.count(timeslot)) {
+        for (auto& s : m_Subscriptions.at(timeslot)) {
+            if (s.tgid == tgid && !s.isStatic) {
+                s.expiry = (timeout == 0) ? 0 : std::time(nullptr) + timeout;
+                return;
+            }
+        }
+    }
+}
+
 void CDMRScanner::RemoveSubscription(unsigned int tgid, int timeslot)
 {
 	std::lock_guard<std::recursive_mutex> lock(m_Mutex);
