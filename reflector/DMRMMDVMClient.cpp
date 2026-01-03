@@ -124,27 +124,22 @@ void CDmrmmdvmClient::JsonReport(nlohmann::json &report)
         return ' ';
     };
 
-    // Process unique modules only to avoid duplicates
-    std::string addedModules = "";
+    // Process unique modules: valid, but we only want ONE entry per client for the dashboard to prevent duplicates.
+    // Pick the *first* mapped module as the "visual" module, or space if none.
+    char visualModule = ' ';
     
     for(unsigned int tg : tgs) {
         char mod = dmrdstToMod(tg);
         if (mod != ' ') {
-            if (addedModules.find(mod) == std::string::npos) {
-                addNode(mod);
-                addedModules += mod;
-                anySub = true;
-            }
+            visualModule = mod;
+            anySub = true;
+            break; // Found one, good enough for display
         }
     }
 
-	// Fallback or Legacy: Use standard module if no specific subscriptions found (or in XLX mode)
-	if (!anySub) {
-		// If no subscriptions and in Mini DMR mode, show as not linked
-        // Do NOT call CClient::JsonReport because it might use stale m_ReflectorModule
-        addNode(' ');
-	}
+	// Always report the client once
+    addNode(visualModule);
     
     // DEBUG: Print generated subs
-    std::cout << "DEBUG: " << m_Callsign.GetCS() << " Subs: " << jSubs.dump() << std::endl;
+    // std::cout << "DEBUG: " << m_Callsign.GetCS() << " Subs: " << jSubs.dump() << std::endl;
 }
