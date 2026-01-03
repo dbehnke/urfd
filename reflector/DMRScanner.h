@@ -51,6 +51,7 @@ public:
 	// Getters
 	unsigned int GetFirstSubscription() const;
 	unsigned int GetSubscriptionSlot(unsigned int tgid) const;
+    std::vector<SSubscription> GetSubscriptions(int slot) const;
 	void GetActiveTalkgroups(std::vector<unsigned int>& tgs) const;
 	unsigned int GetCurrentScanTG(int slot) const { return (slot >= 1 && slot <= 2) ? m_CurrentScanTG[slot-1] : 0; }
 

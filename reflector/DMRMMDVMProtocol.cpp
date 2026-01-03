@@ -344,17 +344,13 @@ void CDmrmmdvmProtocol::OnDvHeaderPacketIn(std::unique_ptr<CDvHeaderPacket> &Hea
 						// So we can look up the slot from the scanner!
 						int slot = dmrClient->m_Scanner.GetSubscriptionSlot(tg);
 						if (slot == 0) slot = 2; // Default to TS2 if not found (e.g. initial PTT)
-                        
-						if (slot == 0) slot = 2; // Default to TS2 if not found (e.g. initial PTT)
 
 						// Auto-subscribe if not subscribed? 
 						// If slot was 0, it means not subscribed. We should probably auto-subscribe.
 						// But which slot? Usually TS2 is safe default for Hotspots.
 						if (slot == 2 && dmrClient->m_Scanner.GetSubscriptionSlot(tg) == 0) {
-						if (slot == 2 && dmrClient->m_Scanner.GetSubscriptionSlot(tg) == 0) {
                              // PTT -> Dynamic Subscription (isStatic=false)
  							 dmrClient->m_Scanner.AddSubscription(tg, 2, timeout, false);
-						}
 						}
 						
 						// Check Access on the specific slot
@@ -369,10 +365,8 @@ void CDmrmmdvmProtocol::OnDvHeaderPacketIn(std::unique_ptr<CDvHeaderPacket> &Hea
 					}
                     
                     // Always ensure module is set if we are processing this packet (Access Granted)
-                    // (Actually, if CheckAccess returned true above, we skipped the block.
-                    // So we must set it here to be sure).
-                    // Redundant if inside block? No, if block skipped, we need it.
-                    // So just place it here.
+                    // DEBUG: Trace Module Assignment
+                    std::cout << "DEBUG: " << client->GetCallsign().GetCS() << " assigned to module " << rpt2.GetCSModule() << std::endl;
                     client->SetReflectorModule(rpt2.GetCSModule());
 				}
 			}

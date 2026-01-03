@@ -66,13 +66,33 @@ void CDmrmmdvmClient::JsonReport(nlohmann::json &report)
     std::vector<unsigned int> tgs;
     m_Scanner.GetActiveTalkgroups(tgs);
     
-    for(unsigned int tg : tgs) {
-        if (m_Scanner.IsSubscribed(tg, 1)) {
-             nlohmann::json s; s["TG"] = tg; s["Slot"] = 1; jSubs.push_back(s);
+    std::time_t now = std::time(nullptr);
+
+    // Collect TS1
+    for(const auto& s : m_Scanner.GetSubscriptions(1)) {
+        nlohmann::json sub;
+        sub["TG"] = s.tgid;
+        sub["Slot"] = 1;
+        sub["Type"] = s.isStatic ? "Static" : "Dynamic";
+        if (!s.isStatic && s.timeout > 0) {
+            sub["TimeoutLeft"] = (s.expiry > now) ? (s.expiry - now) : 0;
+        } else {
+             sub["TimeoutLeft"] = -1; // Infinite or Static
         }
-        if (m_Scanner.IsSubscribed(tg, 2)) {
-             nlohmann::json s; s["TG"] = tg; s["Slot"] = 2; jSubs.push_back(s);
+        jSubs.push_back(sub);
+    }
+    // Collect TS2
+     for(const auto& s : m_Scanner.GetSubscriptions(2)) {
+        nlohmann::json sub;
+        sub["TG"] = s.tgid;
+        sub["Slot"] = 2;
+        sub["Type"] = s.isStatic ? "Static" : "Dynamic";
+        if (!s.isStatic && s.timeout > 0) {
+            sub["TimeoutLeft"] = (s.expiry > now) ? (s.expiry - now) : 0;
+        } else {
+             sub["TimeoutLeft"] = -1;
         }
+        jSubs.push_back(sub);
     }
 
 	// Helper to add node entry
