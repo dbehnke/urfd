@@ -345,22 +345,21 @@ void CDmrmmdvmProtocol::OnDvHeaderPacketIn(std::unique_ptr<CDvHeaderPacket> &Hea
 						int slot = dmrClient->m_Scanner.GetSubscriptionSlot(tg);
 						if (slot == 0) slot = 2; // Default to TS2 if not found (e.g. initial PTT)
                         
-                        // Debug PTT
-                        std::cout << "DEBUG: PTT CheckAccess failed for TG " << tg << ". Inferred Slot: " << slot << std::endl;
+						if (slot == 0) slot = 2; // Default to TS2 if not found (e.g. initial PTT)
 
 						// Auto-subscribe if not subscribed? 
 						// If slot was 0, it means not subscribed. We should probably auto-subscribe.
 						// But which slot? Usually TS2 is safe default for Hotspots.
 						if (slot == 2 && dmrClient->m_Scanner.GetSubscriptionSlot(tg) == 0) {
+						if (slot == 2 && dmrClient->m_Scanner.GetSubscriptionSlot(tg) == 0) {
                              // PTT -> Dynamic Subscription (isStatic=false)
-                             std::cout << "DEBUG: Auto-subscribing TG " << tg << " to TS2 (Dynamic)" << std::endl;
-							 dmrClient->m_Scanner.AddSubscription(tg, 2, timeout, false);
+ 							 dmrClient->m_Scanner.AddSubscription(tg, 2, timeout, false);
+						}
 						}
 						
 						// Check Access on the specific slot
 						if (!dmrClient->m_Scanner.CheckAccess(tg, slot)) {
 							// Blocked (Held by another TG on this slot)
-                            std::cout << "DEBUG: PTT Blocked by Scanner Hold on Slot " << slot << std::endl;
 							g_Reflector.ReleaseClients();
 							return;
 						}
@@ -555,14 +554,6 @@ void CDmrmmdvmProtocol::HandleQueue(void)
 							// Check Access for each slot independently
                             bool ts1 = bufferTS1.size() > 0 && dmrClient->m_Scanner.CheckAccess(tg, 1);
                             bool ts2 = bufferTS2.size() > 0 && dmrClient->m_Scanner.CheckAccess(tg, 2);
-
-                            if (ts1 || ts2) {
-                                std::cout << "DEBUG: Packet Mod=" << packet->GetPacketModule() << " TG=" << tg << " -> Client [" << client->GetCallsign().GetCS() << "]";
-                                if (ts1 && ts2) std::cout << " Sending TS1 & TS2";
-                                else if (ts1) std::cout << " Sending TS1";
-                                else if (ts2) std::cout << " Sending TS2";
-                                std::cout << std::endl;
-                            }
 
 							if (ts1) {
                                 Send(bufferTS1, client->GetIp());
