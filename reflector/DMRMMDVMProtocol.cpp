@@ -305,8 +305,13 @@ void CDmrmmdvmProtocol::OnDvHeaderPacketIn(std::unique_ptr<CDvHeaderPacket> &Hea
 					// Helper: module 'A' -> TG X.
 					// Header->GetRpt2Callsign() call has Module set by DmrDstIdToModule.
 					
+					
 					char mod = rpt2.GetCSModule();
-					uint32_t tg = ModuleToDmrDestId(mod);
+                    // Use real TG from UR field (preserved by IsValidDvHeaderPacket)
+                    // If 0 (e.g. legacy/D-Star), fallback to module calculation?
+                    // But we just set it in IsValidDvHeaderPacket, so it should be there.
+					uint32_t tg = Header->GetUrCallsign().GetDmrid();
+                    if (tg == 0) tg = ModuleToDmrDestId(mod);
 					
 					// Mini DMR: Explicit Disconnect (TG 4000 or specific unlink cmd)
 					if (tg == 4000 || cmd == CMD_UNLINK)
@@ -474,7 +479,9 @@ void CDmrmmdvmProtocol::HandleQueue(void)
 			m_StreamsCache[mod].m_uiSeqId = 0;
 
             // Calculate Destination ID based on Module (XLX or Mini DMR logic)
-            uint32_t tg = ModuleToDmrDestId(packet->GetPacketModule());
+            // Fix: Use Real TG from Header
+			uint32_t tg = ((CDvHeaderPacket*)packet.get())->GetUrCallsign().GetDmrid();
+            if (tg == 0) tg = ModuleToDmrDestId(packet->GetPacketModule());
 
 			// encode it
 			EncodeMMDVMHeaderPacket((CDvHeaderPacket &)*packet.get(), m_StreamsCache[mod].m_uiSeqId, tg, 1, &bufferTS1);
@@ -487,7 +494,8 @@ void CDmrmmdvmProtocol::HandleQueue(void)
 		// check if it's a last frame
 		else if ( packet->IsLastPacket() )
 		{
-            uint32_t tg = ModuleToDmrDestId(packet->GetPacketModule());
+            uint32_t tg = m_StreamsCache[mod].m_dvHeader.GetUrCallsign().GetDmrid();
+            if (tg == 0) tg = ModuleToDmrDestId(packet->GetPacketModule());
 
 			// encode it
 			EncodeLastMMDVMPacket(m_StreamsCache[mod].m_dvHeader, m_StreamsCache[mod].m_uiSeqId, tg, 1, &bufferTS1);
@@ -497,7 +505,8 @@ void CDmrmmdvmProtocol::HandleQueue(void)
 		// otherwise, just a regular DV frame
 		else
 		{
-            uint32_t tg = ModuleToDmrDestId(packet->GetPacketModule());
+            uint32_t tg = m_StreamsCache[mod].m_dvHeader.GetUrCallsign().GetDmrid();
+            if (tg == 0) tg = ModuleToDmrDestId(packet->GetPacketModule());
 
 			// update local stream cache or send triplet when needed
 			switch ( packet->GetDmrPacketSubid() )
@@ -527,9 +536,14 @@ void CDmrmmdvmProtocol::HandleQueue(void)
 			std::shared_ptr<CClient>client = nullptr;
             
             // Calculate TG again for convenience or use from above scope?
-            // The logic above is inside if/else blocks.
-            // Recalculate is safest and clean.
-            uint32_t tg = ModuleToDmrDestId(packet->GetPacketModule());
+            // Recalculate from cache (most reliable for mixed types in loop if we had them, but here we process one packet)
+            // But wait, 'tg' variable is scoped inside if/else blocks above.
+            // We need to retrieve it.
+            uint32_t tg = 0;
+            if (m_StreamsCache.count(mod) > 0) {
+                 tg = m_StreamsCache[mod].m_dvHeader.GetUrCallsign().GetDmrid();
+            }
+            if (tg == 0) tg = ModuleToDmrDestId(packet->GetPacketModule());
 
 			while ( (client = clients->FindNextClient(EProtocol::dmrmmdvm, it)) != nullptr )
 			{
@@ -851,7 +865,12 @@ bool CDmrmmdvmProtocol::IsValidDvHeaderPacket(const CBuffer &Buffer, std::unique
 				rpt2.SetCSModule(DmrDstIdToModule(uiDstId));
 
 				// and packet
-				header = std::unique_ptr<CDvHeaderPacket>(new CDvHeaderPacket(uiSrcId, CCallsign("CQCQCQ"), rpt1, rpt2, uiStreamId, 0, 0));
+				// Store Destination ID (TG) in UR Callsign for preservation
+				CCallsign csUR("CQCQCQ");
+				csUR.SetDmrid(uiDstId, true);
+
+				// and packet
+				header = std::unique_ptr<CDvHeaderPacket>(new CDvHeaderPacket(uiSrcId, csUR, rpt1, rpt2, uiStreamId, 0, 0));
 				if ( header && header->IsValid() )
 					return true;
 			}
@@ -920,7 +939,12 @@ bool CDmrmmdvmProtocol::IsValidDvFramePacket(const CIp &Ip, const CBuffer &Buffe
 				rpt2.SetCSModule(DmrDstIdToModule(uiDstId));
 
 				// and packet
-				header = std::unique_ptr<CDvHeaderPacket>(new CDvHeaderPacket(uiSrcId, CCallsign("CQCQCQ"), rpt1, rpt2, uiStreamId, 0, 0));
+				// Store Destination ID (TG) in UR Callsign for preservation
+				CCallsign csUR("CQCQCQ");
+				csUR.SetDmrid(uiDstId, true);
+
+				// and packet
+				header = std::unique_ptr<CDvHeaderPacket>(new CDvHeaderPacket(uiSrcId, csUR, rpt1, rpt2, uiStreamId, 0, 0));
 
 				if ( g_GateKeeper.MayTransmit(header->GetMyCallsign(), Ip, EProtocol::dmrmmdvm) )
 				{
