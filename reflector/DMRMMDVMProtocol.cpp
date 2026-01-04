@@ -305,13 +305,8 @@ void CDmrmmdvmProtocol::OnDvHeaderPacketIn(std::unique_ptr<CDvHeaderPacket> &Hea
 					// Helper: module 'A' -> TG X.
 					// Header->GetRpt2Callsign() call has Module set by DmrDstIdToModule.
 					
-					
 					char mod = rpt2.GetCSModule();
-                    // Use real TG from UR field (preserved by IsValidDvHeaderPacket)
-                    // If 0 (e.g. legacy/D-Star), fallback to module calculation?
-                    // But we just set it in IsValidDvHeaderPacket, so it should be there.
-					uint32_t tg = Header->GetUrCallsign().GetDmrid();
-                    if (tg == 0) tg = ModuleToDmrDestId(mod);
+					uint32_t tg = ModuleToDmrDestId(mod);
 					
 					// Mini DMR: Explicit Disconnect (TG 4000 or specific unlink cmd)
 					if (tg == 4000 || cmd == CMD_UNLINK)
@@ -447,12 +442,11 @@ void CDmrmmdvmProtocol::OnDvHeaderPacketIn(std::unique_ptr<CDvHeaderPacket> &Hea
 		// update last heard
 		if ( lastheard )
 		{
-            // Use UR (Target/TG) as the target argument for Hearing
-            // Since we reverted UR to "CQCQCQ" for protocol safety, we manually set the string to the TG ID here for display
+			// Fix Dashboard Target Display
+            // Construct target with explicit stringID to show "7002" instead of "CQCQCQ"
             CCallsign target = Header->GetUrCallsign();
-            // Re-fetch TG from Header (since 'tg' variable is out of scope here)
-            uint32_t currentTg = Header->GetUrCallsign().GetDmrid();
-            target.SetCallsign( std::to_string(currentTg) );
+            target.SetCallsign(std::to_string(uiDstId));
+            
 			g_Reflector.GetUsers()->Hearing(my, target, rpt1, rpt2, EProtocol::dmrmmdvm);
 			g_Reflector.ReleaseUsers();
 		}
@@ -485,7 +479,6 @@ void CDmrmmdvmProtocol::HandleQueue(void)
 			m_StreamsCache[mod].m_uiSeqId = 0;
 
             // Calculate Destination ID based on Module (XLX or Mini DMR logic)
-            // Revert: Use ModuleToDmrDestId to ensure stable egress (avoids client timeouts)
             uint32_t tg = ModuleToDmrDestId(packet->GetPacketModule());
 
 			// encode it
@@ -538,7 +531,9 @@ void CDmrmmdvmProtocol::HandleQueue(void)
 			auto it = clients->begin();
 			std::shared_ptr<CClient>client = nullptr;
             
-            // Calculate TG again using module mapping for stable egress
+            // Calculate TG again for convenience or use from above scope?
+            // The logic above is inside if/else blocks.
+            // Recalculate is safest and clean.
             uint32_t tg = ModuleToDmrDestId(packet->GetPacketModule());
 
 			while ( (client = clients->FindNextClient(EProtocol::dmrmmdvm, it)) != nullptr )
@@ -861,11 +856,7 @@ bool CDmrmmdvmProtocol::IsValidDvHeaderPacket(const CBuffer &Buffer, std::unique
 				rpt2.SetCSModule(DmrDstIdToModule(uiDstId));
 
 				// and packet
-				CCallsign csUR("CQCQCQ");
-				csUR.SetDmrid(uiDstId, false);
-
-				// and packet
-				header = std::unique_ptr<CDvHeaderPacket>(new CDvHeaderPacket(uiSrcId, csUR, rpt1, rpt2, uiStreamId, 0, 0));
+				header = std::unique_ptr<CDvHeaderPacket>(new CDvHeaderPacket(uiSrcId, CCallsign("CQCQCQ"), rpt1, rpt2, uiStreamId, 0, 0));
 				if ( header && header->IsValid() )
 					return true;
 			}
@@ -934,12 +925,7 @@ bool CDmrmmdvmProtocol::IsValidDvFramePacket(const CIp &Ip, const CBuffer &Buffe
 				rpt2.SetCSModule(DmrDstIdToModule(uiDstId));
 
 				// and packet
-				// Store Destination ID (TG) in UR Callsign for preservation
-				CCallsign csUR("CQCQCQ");
-				csUR.SetDmrid(uiDstId, true);
-
-				// and packet
-				header = std::unique_ptr<CDvHeaderPacket>(new CDvHeaderPacket(uiSrcId, csUR, rpt1, rpt2, uiStreamId, 0, 0));
+				header = std::unique_ptr<CDvHeaderPacket>(new CDvHeaderPacket(uiSrcId, CCallsign("CQCQCQ"), rpt1, rpt2, uiStreamId, 0, 0));
 
 				if ( g_GateKeeper.MayTransmit(header->GetMyCallsign(), Ip, EProtocol::dmrmmdvm) )
 				{
