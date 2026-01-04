@@ -480,9 +480,8 @@ void CDmrmmdvmProtocol::HandleQueue(void)
 			m_StreamsCache[mod].m_uiSeqId = 0;
 
             // Calculate Destination ID based on Module (XLX or Mini DMR logic)
-            // Fix: Use Real TG from Header
-			uint32_t tg = ((CDvHeaderPacket*)packet.get())->GetUrCallsign().GetDmrid();
-            if (tg == 0) tg = ModuleToDmrDestId(packet->GetPacketModule());
+            // Revert: Use ModuleToDmrDestId to ensure stable egress (avoids client timeouts)
+            uint32_t tg = ModuleToDmrDestId(packet->GetPacketModule());
 
 			// encode it
 			EncodeMMDVMHeaderPacket((CDvHeaderPacket &)*packet.get(), m_StreamsCache[mod].m_uiSeqId, tg, 1, &bufferTS1);
@@ -495,8 +494,7 @@ void CDmrmmdvmProtocol::HandleQueue(void)
 		// check if it's a last frame
 		else if ( packet->IsLastPacket() )
 		{
-            uint32_t tg = m_StreamsCache[mod].m_dvHeader.GetUrCallsign().GetDmrid();
-            if (tg == 0) tg = ModuleToDmrDestId(packet->GetPacketModule());
+            uint32_t tg = ModuleToDmrDestId(packet->GetPacketModule());
 
 			// encode it
 			EncodeLastMMDVMPacket(m_StreamsCache[mod].m_dvHeader, m_StreamsCache[mod].m_uiSeqId, tg, 1, &bufferTS1);
@@ -506,8 +504,7 @@ void CDmrmmdvmProtocol::HandleQueue(void)
 		// otherwise, just a regular DV frame
 		else
 		{
-            uint32_t tg = m_StreamsCache[mod].m_dvHeader.GetUrCallsign().GetDmrid();
-            if (tg == 0) tg = ModuleToDmrDestId(packet->GetPacketModule());
+            uint32_t tg = ModuleToDmrDestId(packet->GetPacketModule());
 
 			// update local stream cache or send triplet when needed
 			switch ( packet->GetDmrPacketSubid() )
@@ -536,15 +533,8 @@ void CDmrmmdvmProtocol::HandleQueue(void)
 			auto it = clients->begin();
 			std::shared_ptr<CClient>client = nullptr;
             
-            // Calculate TG again for convenience or use from above scope?
-            // Recalculate from cache (most reliable for mixed types in loop if we had them, but here we process one packet)
-            // But wait, 'tg' variable is scoped inside if/else blocks above.
-            // We need to retrieve it.
-            uint32_t tg = 0;
-            if (m_StreamsCache.count(mod) > 0) {
-                 tg = m_StreamsCache[mod].m_dvHeader.GetUrCallsign().GetDmrid();
-            }
-            if (tg == 0) tg = ModuleToDmrDestId(packet->GetPacketModule());
+            // Calculate TG again using module mapping for stable egress
+            uint32_t tg = ModuleToDmrDestId(packet->GetPacketModule());
 
 			while ( (client = clients->FindNextClient(EProtocol::dmrmmdvm, it)) != nullptr )
 			{
