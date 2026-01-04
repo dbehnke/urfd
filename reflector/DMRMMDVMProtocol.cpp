@@ -444,7 +444,11 @@ void CDmrmmdvmProtocol::OnDvHeaderPacketIn(std::unique_ptr<CDvHeaderPacket> &Hea
 		{
 			// Fix Dashboard Target Display
             // Construct target with explicit stringID to show "7002" instead of "CQCQCQ"
-            CCallsign target = Header->GetUrCallsign();
+            // CRITICAL FIX: Header is unique_ptr and was MOVED in OpenStream above if stream opened.
+            // We cannot access Header here if stream != nullptr.
+            // Reconstruct a clean target object.
+            CCallsign target("CQCQCQ"); // Default safe initialization
+            
             // uiDstId is not in scope, recover it from the module (which relies on urfd.ini mapping)
             uint32_t tg = ModuleToDmrDestId(rpt2.GetCSModule());
             target.SetCallsign(std::to_string(tg));
