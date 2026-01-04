@@ -1320,7 +1320,9 @@ void CDmrmmdvmProtocol::AppendVoiceLCToBuffer(CBuffer *buffer, uint32_t uiSrcId,
 	{
 		memset(lc, 0, sizeof(lc));
 		// uiDstId
-		lc[5] = (uint8_t)uiDstId;
+		lc[3] = (uint8_t)LOBYTE(HIWORD(uiDstId));
+		lc[4] = (uint8_t)HIBYTE(LOWORD(uiDstId));
+		lc[5] = (uint8_t)LOBYTE(LOWORD(uiDstId));
 		// uiSrcId
 		lc[6] = (uint8_t)LOBYTE(HIWORD(uiSrcId));
 		lc[7] = (uint8_t)HIBYTE(LOWORD(uiSrcId));
@@ -1367,7 +1369,9 @@ void CDmrmmdvmProtocol::AppendTerminatorLCToBuffer(CBuffer *buffer, uint32_t uiS
 	{
 		memset(lc, 0, sizeof(lc));
 		// uiDstId
-		lc[5] = (uint8_t)uiDstId;
+		lc[3] = (uint8_t)LOBYTE(HIWORD(uiDstId));
+		lc[4] = (uint8_t)HIBYTE(LOWORD(uiDstId));
+		lc[5] = (uint8_t)LOBYTE(LOWORD(uiDstId));
 		// uiSrcId
 		lc[6] = (uint8_t)LOBYTE(HIWORD(uiSrcId));
 		lc[7] = (uint8_t)HIBYTE(LOWORD(uiSrcId));
