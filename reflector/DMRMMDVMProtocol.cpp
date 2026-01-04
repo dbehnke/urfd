@@ -447,7 +447,8 @@ void CDmrmmdvmProtocol::OnDvHeaderPacketIn(std::unique_ptr<CDvHeaderPacket> &Hea
 		// update last heard
 		if ( lastheard )
 		{
-			g_Reflector.GetUsers()->Hearing(my, rpt1, rpt2, rpt2, EProtocol::dmrmmdvm);
+            // Use UR (Target/TG) as the target argument for Hearing
+			g_Reflector.GetUsers()->Hearing(my, Header->GetUrCallsign(), rpt1, rpt2, EProtocol::dmrmmdvm);
 			g_Reflector.ReleaseUsers();
 		}
 	}
