@@ -450,7 +450,9 @@ void CDmrmmdvmProtocol::OnDvHeaderPacketIn(std::unique_ptr<CDvHeaderPacket> &Hea
             // Use UR (Target/TG) as the target argument for Hearing
             // Since we reverted UR to "CQCQCQ" for protocol safety, we manually set the string to the TG ID here for display
             CCallsign target = Header->GetUrCallsign();
-            target.SetCallsign( std::to_string(tg) );
+            // Re-fetch TG from Header (since 'tg' variable is out of scope here)
+            uint32_t currentTg = Header->GetUrCallsign().GetDmrid();
+            target.SetCallsign( std::to_string(currentTg) );
 			g_Reflector.GetUsers()->Hearing(my, target, rpt1, rpt2, EProtocol::dmrmmdvm);
 			g_Reflector.ReleaseUsers();
 		}
@@ -863,7 +865,7 @@ bool CDmrmmdvmProtocol::IsValidDvHeaderPacket(const CBuffer &Buffer, std::unique
 				csUR.SetDmrid(uiDstId, false);
 
 				// and packet
-				header = std::unique_ptr<CDvHeaderPacket>(new CDvHeaderPacket(csMY, csUR, rpt1, rpt2, uiStreamId, 0, 0));
+				header = std::unique_ptr<CDvHeaderPacket>(new CDvHeaderPacket(uiSrcId, csUR, rpt1, rpt2, uiStreamId, 0, 0));
 				if ( header && header->IsValid() )
 					return true;
 			}
