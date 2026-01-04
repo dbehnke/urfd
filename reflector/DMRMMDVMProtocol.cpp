@@ -445,7 +445,9 @@ void CDmrmmdvmProtocol::OnDvHeaderPacketIn(std::unique_ptr<CDvHeaderPacket> &Hea
 			// Fix Dashboard Target Display
             // Construct target with explicit stringID to show "7002" instead of "CQCQCQ"
             CCallsign target = Header->GetUrCallsign();
-            target.SetCallsign(std::to_string(uiDstId));
+            // uiDstId is not in scope, recover it from the module (which relies on urfd.ini mapping)
+            uint32_t tg = ModuleToDmrDestId(rpt2.GetCSModule());
+            target.SetCallsign(std::to_string(tg));
             
 			g_Reflector.GetUsers()->Hearing(my, target, rpt1, rpt2, EProtocol::dmrmmdvm);
 			g_Reflector.ReleaseUsers();
