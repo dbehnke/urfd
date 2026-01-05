@@ -1005,7 +1005,7 @@ bool CDmrmmdvmProtocol::IsValidDvFramePacket(const CIp &Ip, const CBuffer &Buffe
 				if ( g_GateKeeper.MayTransmit(header->GetMyCallsign(), Ip, EProtocol::dmrmmdvm) )
 				{
 					// handle it
-					OnDvHeaderPacketIn(header, Ip, cmd, uiCallType);
+					OnDvHeaderPacketIn(header, Ip, cmd, uiCallType, uiSlot);
 				}
 			}
 
