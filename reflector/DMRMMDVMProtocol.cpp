@@ -86,6 +86,7 @@ void CDmrmmdvmProtocol::Task(void)
 	int       iRssi;
 	uint8_t     Cmd;
 	uint8_t     CallType;
+    uint8_t     uiSlot;
 	std::unique_ptr<CDvHeaderPacket>  Header;
 	std::unique_ptr<CDvFramePacket>   LastFrame;
 	std::array<std::unique_ptr<CDvFramePacket>, 3> Frames;
@@ -150,7 +151,7 @@ void CDmrmmdvmProtocol::Task(void)
 				OnDvFramePacketIn(Frames.at(i), &Ip);
 			}
 		}
-		else if ( IsValidDvHeaderPacket(Buffer, Header, &Cmd, &CallType) )
+		else if ( IsValidDvHeaderPacket(Buffer, Header, &Cmd, &CallType, &uiSlot) )
 		{
             // Reset Logging on Header
             m_debugFrameCount = 0;
@@ -162,7 +163,7 @@ void CDmrmmdvmProtocol::Task(void)
 			if ( g_GateKeeper.MayTransmit(Header->GetMyCallsign(), Ip, EProtocol::dmrmmdvm) )
 			{
 				// handle it
-				OnDvHeaderPacketIn(Header, Ip, Cmd, CallType);
+				OnDvHeaderPacketIn(Header, Ip, Cmd, CallType, uiSlot);
 			}
 		}
 		else if ( IsValidDvLastFramePacket(Buffer, LastFrame) )
@@ -317,7 +318,9 @@ void CDmrmmdvmProtocol::Task(void)
 ////////////////////////////////////////////////////////////////////////////////////////
 // streams helpers
 
-void CDmrmmdvmProtocol::OnDvHeaderPacketIn(std::unique_ptr<CDvHeaderPacket> &Header, const CIp &Ip, uint8_t cmd, uint8_t CallType)
+// stream helpers
+
+void CDmrmmdvmProtocol::OnDvHeaderPacketIn(std::unique_ptr<CDvHeaderPacket> &Header, const CIp &Ip, uint8_t cmd, uint8_t CallType, uint8_t uiSlot)
 {
 	bool lastheard = false;
 
@@ -401,27 +404,18 @@ void CDmrmmdvmProtocol::OnDvHeaderPacketIn(std::unique_ptr<CDvHeaderPacket> &Hea
 						// So we add subscription first.
 						
 						// Add Subscription (Dynamic)
+						// Add Subscription (Dynamic)
 						unsigned int timeout = g_Configure.GetUnsigned(g_Keys.dmr.timeout);
-						// Slot? Usually assume Slot 2 or from Header? Header has slot info?
-						// CDvHeaderPacket doesn't easily expose slot in args here, passed in?
-						// Header->GetBitField? 
-						// Actually buffer parsing did it.
-						// We don't have slot easily available here except from previous context?
-						// Buffer parsing sets 'header' and 'cmd'.
-						// Mini DMR Mode: Scanner Check
-						// We need to know which slot the user is transmitting on.
-						// The packet doesn't explicitly tell us (it's embedded in obscure bits or implicit).
-						// However, if the user is transmitting on TG X, they MUST be subscribed to TG X.
-						// So we can look up the slot from the scanner!
-						int slot = dmrClient->m_Scanner.GetSubscriptionSlot(tg);
-						if (slot == 0) slot = 2; // Default to TS2 if not found (e.g. initial PTT)
+						
+						// FIX: Use actual slot from packet
+						int slot = uiSlot;
+						if (slot == 0) slot = 2; // Default to TS2 only if slot not resolved (safety)
 
 						// Auto-subscribe if not subscribed? 
-						// If slot was 0, it means not subscribed. We should probably auto-subscribe.
-						// But which slot? Usually TS2 is safe default for Hotspots.
-						if (slot == 2 && dmrClient->m_Scanner.GetSubscriptionSlot(tg) == 0) {
+						// If user is transmitting on 'slot', they want to subscribe on 'slot'.
+						if (dmrClient->m_Scanner.GetSubscriptionSlot(tg) == 0) {
                              // PTT -> Dynamic Subscription (isStatic=false)
- 							 dmrClient->m_Scanner.AddSubscription(tg, 2, timeout, false);
+ 							 dmrClient->m_Scanner.AddSubscription(tg, slot, timeout, false);
 						}
 						
 						// Check Access on the specific slot
@@ -868,11 +862,12 @@ bool CDmrmmdvmProtocol::IsValidRssiPacket(const CBuffer &Buffer, CCallsign *call
 	return valid;
 }
 
-bool CDmrmmdvmProtocol::IsValidDvHeaderPacket(const CBuffer &Buffer, std::unique_ptr<CDvHeaderPacket> &header, uint8_t *cmd, uint8_t *CallType)
+bool CDmrmmdvmProtocol::IsValidDvHeaderPacket(const CBuffer &Buffer, std::unique_ptr<CDvHeaderPacket> &header, uint8_t *cmd, uint8_t *CallType, uint8_t *Slot)
 {
 	uint8_t tag[] = { 'D','M','R','D' };
 
 	*cmd = CMD_NONE;
+    if (Slot) *Slot = 0; // Init safe value
 
 	if ( (Buffer.size() == 55) && (Buffer.Compare(tag, sizeof(tag)) == 0) )
 	{
@@ -910,6 +905,9 @@ bool CDmrmmdvmProtocol::IsValidDvHeaderPacket(const CBuffer &Buffer, std::unique
 
 				// call type
 				*CallType = uiCallType;
+                
+                // Return Slot
+                if (Slot) *Slot = uiSlot;
 
 				// link/unlink command ?
 				if ( uiDstId == 4000 )
