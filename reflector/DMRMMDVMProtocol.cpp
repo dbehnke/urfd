@@ -65,6 +65,10 @@ bool CDmrmmdvmProtocol::Initialize(const char *type, const EProtocol ptype, cons
 	::srand((unsigned) time(&t));
 	m_uiAuthSeed = (uint32_t)rand();
 
+    // Debug: Start disabled
+    m_debugFrameCount = 6; 
+    std::cout << "[DEBUG] DMR Burst Logging Enabled (Header + 6 Frames)" << std::endl;
+
 	// done
 	return true;
 }
@@ -101,6 +105,13 @@ void CDmrmmdvmProtocol::Task(void)
 		// crack the packet
 		if ( IsValidDvFramePacket(Ip, Buffer, Header, Frames) )
 		{
+            if (m_debugFrameCount < 6) {
+                m_debugFrameCount++;
+                std::cout << "[DEBUG] DMR Frame " << m_debugFrameCount << " Size=" << Buffer.size() << " Data: ";
+                for (size_t i = 0; i < Buffer.size(); i++) printf("%02X", Buffer.data()[i]);
+                std::cout << std::endl;
+            }
+
 			for ( int i = 0; i < 3; i++ )
 			{
 				OnDvFramePacketIn(Frames.at(i), &Ip);
@@ -108,6 +119,12 @@ void CDmrmmdvmProtocol::Task(void)
 		}
 		else if ( IsValidDvHeaderPacket(Buffer, Header, &Cmd, &CallType) )
 		{
+            // Reset Logging on Header
+            m_debugFrameCount = 0;
+            std::cout << "[DEBUG] DMR Header IN (Reset Log) Size=" << Buffer.size() << " Data: ";
+            for (size_t i = 0; i < Buffer.size(); i++) printf("%02X", Buffer.data()[i]);
+            std::cout << std::endl;
+
 			// callsign muted?
 			if ( g_GateKeeper.MayTransmit(Header->GetMyCallsign(), Ip, EProtocol::dmrmmdvm) )
 			{
