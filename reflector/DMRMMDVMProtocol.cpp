@@ -883,7 +883,7 @@ bool CDmrmmdvmProtocol::IsValidDvHeaderPacket(const CBuffer &Buffer, std::unique
 		uint8_t uiSlotType = Buffer.data()[15] & 0x0F;
 		//std::cout << (int)uiSlot << std::endl;
 		if ( (uiFrameType == DMRMMDVM_FRAMETYPE_DATASYNC) &&
-				(uiSlot == DMRMMDVM_REFLECTOR_SLOT) &&
+				//(uiSlot == DMRMMDVM_REFLECTOR_SLOT) &&
 				(uiSlotType == MMDVM_SLOTTYPE_HEADER) )
 		{
 			// extract sync
@@ -953,7 +953,7 @@ bool CDmrmmdvmProtocol::IsValidDvFramePacket(const CIp &Ip, const CBuffer &Buffe
 		uint8_t uiSlot = (Buffer.data()[15] & 0x80) ? DMR_SLOT2 : DMR_SLOT1;
 		uint8_t uiCallType = (Buffer.data()[15] & 0x40) ? DMR_PRIVATE_CALL : DMR_GROUP_CALL;
 		if ( ((uiFrameType == DMRMMDVM_FRAMETYPE_VOICE) || (uiFrameType == DMRMMDVM_FRAMETYPE_VOICESYNC)) &&
-				(uiSlot == DMRMMDVM_REFLECTOR_SLOT) && (uiCallType == DMR_GROUP_CALL) )
+				/*(uiSlot == DMRMMDVM_REFLECTOR_SLOT) &&*/ (uiCallType == DMR_GROUP_CALL) )
 		{
 			// crack DMR header
 			//uint8_t uiSeqId = Buffer.data()[4];
@@ -1067,7 +1067,7 @@ bool CDmrmmdvmProtocol::IsValidDvLastFramePacket(const CBuffer &Buffer, std::uni
 		uint8_t uiSlotType = Buffer.data()[15] & 0x0F;
 		//std::cout << (int)uiSlot << std::endl;
 		if ( (uiFrameType == DMRMMDVM_FRAMETYPE_DATASYNC) &&
-				(uiSlot == DMRMMDVM_REFLECTOR_SLOT) &&
+				//(uiSlot == DMRMMDVM_REFLECTOR_SLOT) &&
 				(uiSlotType == MMDVM_SLOTTYPE_TERMINATOR) )
 		{
 			// extract sync
