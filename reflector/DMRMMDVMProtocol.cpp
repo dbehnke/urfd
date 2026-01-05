@@ -102,6 +102,39 @@ void CDmrmmdvmProtocol::Task(void)
 #endif
 	{
 		//Buffer.DebugDump(g_Reflector.m_DebugFile);
+
+        // RAW DEBUG LOGGING (Pre-Validation)
+        // Detect Header to reset counter
+        uint8_t dmrd_tag[] = { 'D','M','R','D' };
+        if (Buffer.size() == 55 && Buffer.Compare(dmrd_tag, 4) == 0) {
+             uint8_t uiSlotType = Buffer.data()[15] & 0x0F;
+             uint8_t uiFrameType = (Buffer.data()[15] & 0x30) >> 4;
+             // Check if it's a Header (DataSync + Header Slot Type)
+             // Need definitions or hardcoded values matching IsValidDvHeaderPacket
+             // DMRMMDVM_FRAMETYPE_DATASYNC=2, MMDVM_SLOTTYPE_HEADER=1
+             if (uiFrameType == 2 && uiSlotType == 1) {
+                 m_debugFrameCount = 0;
+                 std::cout << "[DEBUG-RAW] Header Detected -> Reset Log Counter" << std::endl;
+             }
+        }
+
+        if (m_debugFrameCount < 6) {
+             std::cout << "[DEBUG-RAW] Pkt " << m_debugFrameCount << " Size=" << Buffer.size() << " Data: ";
+             for (size_t i = 0; i < Buffer.size(); i++) printf("%02X", Buffer.data()[i]);
+             std::cout << std::endl;
+             
+             // If this wasn't a header (counter 0), increment? 
+             // Or let IsValidDvFramePacket increment?
+             // If validation fails, we won't increment, so we might log infinite "bad" packets.
+             // Let's increment here for "Raw" logging purposes if not 0?
+             // Actually, keep it simple. If valid header, count=0. Then we see it.
+             // If valid frame, increment.
+             // If invalid frame, we verify it arrived.
+             // BUT if we don't increment on invalid frames, we'll spam logs if client sends garbage.
+             // Force increment counter if > 0?
+             if (m_debugFrameCount > 0) m_debugFrameCount++; 
+        }
+
 		// crack the packet
 		if ( IsValidDvFramePacket(Ip, Buffer, Header, Frames) )
 		{
