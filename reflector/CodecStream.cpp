@@ -88,7 +88,7 @@ void CCodecStream::ResetStats(uint16_t streamid, ECodecType type)
 	if (g_Configure.GetBoolean(g_Keys.audio.enable))
 	{
 		std::string path = g_Configure.GetString(g_Keys.audio.path);
-		m_Filename = m_Recorder.Start(path);
+		m_Filename = m_Recorder.Start(path, m_CSModule);
 	}
 	else
 	{

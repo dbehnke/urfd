@@ -19,7 +19,7 @@ public:
     // Generates a UUIDv7 based filename if path is a directory,
     // or uses the provided path + generated filename.
     // Returns the filename (without path) for notification.
-    std::string Start(const std::string& directory);
+    std::string Start(const std::string& directory, char module);
 
     // Writes signed 16-bit PCM samples (8kHz mono)
     void Write(const int16_t* samples, int count);

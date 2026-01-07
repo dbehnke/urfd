@@ -37,7 +37,7 @@ void CAudioRecorder::Cleanup()
     m_PcmBuffer.clear();
 }
 
-std::string CAudioRecorder::Start(const std::string& directory)
+std::string CAudioRecorder::Start(const std::string& directory, char module)
 {
     std::lock_guard<std::mutex> lock(m_Mutex);
     Cleanup();
@@ -61,7 +61,7 @@ std::string CAudioRecorder::Start(const std::string& directory)
     char uuid_str[37];
     uuidv7_to_string(uuid, uuid_str);
     
-    m_Filename = "hearing_" + std::string(uuid_str) + ".opus";
+    m_Filename = "hearing_Mod" + std::string(1, module) + "_" + std::string(uuid_str) + ".opus";
     if (directory.back() == '/')
         m_FullPath = directory + m_Filename;
     else
