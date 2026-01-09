@@ -291,7 +291,7 @@ bool CUSRPProtocol::IsValidDvPacket(const CIp &Ip, const CBuffer &Buffer, std::u
 	if(!memcmp(Buffer.data(), "USRP", 4) && (Buffer.size() == 352) && (Buffer.data()[20] == USRP_TYPE_VOICE) && (Buffer.data()[15] == USRP_KEYUP_TRUE) )
 	{
 		auto stream = GetStream(m_uiStreamId, &Ip);
-		if ( !stream )
+		if ( !stream || !stream->IsOpen() )
 		{
 			m_uiStreamId = static_cast<uint32_t>(::rand());
 			CCallsign csMY;
@@ -333,7 +333,7 @@ bool CUSRPProtocol::IsValidDvHeaderPacket(const CIp &Ip, const CBuffer &Buffer, 
 {
 	if(!memcmp(Buffer.data(), "USRP", 4) && (Buffer.size() == 352) && (Buffer.data()[20] == USRP_TYPE_TEXT) && (Buffer.data()[32] == TLV_TAG_SET_INFO) ){
 		auto stream = GetStream(m_uiStreamId, &Ip);
-		if ( !stream )
+		if ( !stream || !stream->IsOpen() )
 		{
 			uint32_t uiSrcId = ((Buffer.data()[1] << 16) | ((Buffer.data()[2] << 8) & 0xff00) | (Buffer.data()[3] & 0xff));
 			m_uiStreamId = static_cast<uint32_t>(::rand());
