@@ -314,6 +314,16 @@ bool CUSRPProtocol::IsValidDvPacket(const CIp &Ip, const CBuffer &Buffer, std::u
 bool CUSRPProtocol::IsValidDvHeaderPacket(const CIp &Ip, const CBuffer &Buffer, std::unique_ptr<CDvHeaderPacket> &header)
 {
 	if(!memcmp(Buffer.data(), "USRP", 4) && (Buffer.size() == 352) && (Buffer.data()[20] == USRP_TYPE_TEXT) && (Buffer.data()[32] == TLV_TAG_SET_INFO) ){
+		// Probe: Log content at offset 46
+		std::cout << "[USRP PROBE] Header from " << Ip.GetAddress() << std::endl;
+		char probeBuf[65];
+		memset(probeBuf, 0, 65);
+		memcpy(probeBuf, Buffer.data() + 46, 64); // Copy up to 64 bytes
+		std::cout << "[USRP PROBE] String (Off 46): '" << probeBuf << "'" << std::endl;
+		printf("[USRP PROBE] Hex (Off 46): ");
+		for(int i=0; i<16; i++) printf("%02X ", Buffer.data()[46+i]);
+		printf("\n");
+
 		auto stream = GetStream(m_uiStreamId, &Ip);
 		if ( !stream )
 		{
