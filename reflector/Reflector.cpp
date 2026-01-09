@@ -196,6 +196,7 @@ void CReflector::Stop(void)
 	g_LNid.LookupClose();
 	g_LYtr.LookupClose();
 
+#ifndef NO_DHT
 	// kill the DHT
 	node.cancelPut(refhash, toUType(EUrfdValueID::Config));
 	node.cancelPut(refhash, toUType(EUrfdValueID::Peers));
