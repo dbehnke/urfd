@@ -291,7 +291,15 @@ bool CUSRPProtocol::IsValidDvPacket(const CIp &Ip, const CBuffer &Buffer, std::u
 	if(!memcmp(Buffer.data(), "USRP", 4) && (Buffer.size() == 352) && (Buffer.data()[20] == USRP_TYPE_VOICE) && (Buffer.data()[15] == USRP_KEYUP_TRUE) )
 	{
 		auto stream = GetStream(m_uiStreamId, &Ip);
-		if ( !stream || !stream->IsOpen() )
+		if ( stream && !stream->IsOpen() ) {
+			// Stream exists but is closed. This happens after a forced NNG reconnection.
+			// We MUST remove it from m_Streams so that a new stream ID can be generated
+			// and Reflector::OpenStream will accept it.
+			m_Streams.erase(m_uiStreamId);
+			stream = nullptr; // force finding/creation logic below
+		}
+		
+		if ( !stream )
 		{
 			m_uiStreamId = static_cast<uint32_t>(::rand());
 			CCallsign csMY;
@@ -333,7 +341,12 @@ bool CUSRPProtocol::IsValidDvHeaderPacket(const CIp &Ip, const CBuffer &Buffer, 
 {
 	if(!memcmp(Buffer.data(), "USRP", 4) && (Buffer.size() == 352) && (Buffer.data()[20] == USRP_TYPE_TEXT) && (Buffer.data()[32] == TLV_TAG_SET_INFO) ){
 		auto stream = GetStream(m_uiStreamId, &Ip);
-		if ( !stream || !stream->IsOpen() )
+		if ( stream && !stream->IsOpen() ) {
+			m_Streams.erase(m_uiStreamId);
+			stream = nullptr;
+		}
+
+		if ( !stream )
 		{
 			uint32_t uiSrcId = ((Buffer.data()[1] << 16) | ((Buffer.data()[2] << 8) & 0xff00) | (Buffer.data()[3] & 0xff));
 			m_uiStreamId = static_cast<uint32_t>(::rand());
@@ -421,26 +434,23 @@ void CUSRPProtocol::RegisterClient(const std::string &ip, const std::string &cal
 	for (auto const& [id, stream] : m_Streams) {
 		const CIp* ownerIp = stream->GetOwnerIp();
 		if (ownerIp && ownerIp->GetAddr() == addr) {
-			// Found a stream for this IP. Close it to force re-identification.
-			// accessing stream is safe because it's a shared_ptr
-			// But ClosePacketStream should be called by Reflector?
-			// Protocol::CheckStreamsTimeout checks timestamps.
-			// Actually we can just mark it as expired or closed?
-			// CProtocol doesn't have a "CloseStream" method for a specific stream exposed easily.
-			// But we have the logical stream. CPacketStream::ClosePacketStream closes the internal queue but doesn't remove it from m_Streams immediately?
-			// Accessing internal data of stream...
-			// Best way: Just change the user callsign in the stream header?
-			// m_DvHeader in CPacketStream.
-			// But CPacketStream::GetOwnerClient() has the Client object which determines identity.
-			// If we modify the header, the Client object is still the old one.
-			// We MUST close the stream so Reflector::RouterThread stops using it, and a new one is created.
-			
-			// We can't easily call Reflector::CloseStream from here (circular dependency, or need reference).
-			// However, if we manually ClosePacketStream(), the next Read/Pop might return null/empty or Reflector checks IsOpen.
 			if (stream->IsOpen()) {
 				std::cout << "USRP: Force closing stream for " << ip << " to update callsign to " << callsign << std::endl;
-				stream->ClosePacketStream(); 
-				// The client logic in Reflector or Protocol will handle cleanup eventually.
+				stream->ClosePacketStream();
+				// CRITICAL: We must remove it from the map immediately, otherwise Reflector::OpenStream 
+				// will see the old (closed) stream in IsStreamOpen() check (loop detection) and refuse to open a new one.
+				// m_Streams is protected by the Protocol lock in the main loop, but here we are in a different thread context?
+				// Wait, RegisterClient is called from NNGControl::Poll which is called from MaintenanceThread.
+				// m_Streams is accessed by Task() (via GetStream, CheckStreamsTimeout) in the ProtocolThread.
+				// This is a race condition if we delete from map without lock.
+				// CProtocol doesn't expose a mutex for m_Streams.
+				// However, CProtocol::Task() is running in parallel.
+				
+				// Workaround: We can't delete from map safely without lock.
+				// But we CAN mark the stream ID as 'invalid' in the map if we could.
+				// Better approach: In IsValidDvPacket, if we find a closed stream, we should probably REMOVE it from the map there (where it's safe as we are in Task).
+				
+				// Let's modify IsValidDvPacket instead to handle the map cleanup.
 			}
 		}
 	}
