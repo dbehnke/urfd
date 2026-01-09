@@ -397,13 +397,10 @@ void CUSRPProtocol::EncodeUSRPPacket(const CDvHeaderPacket &Header, const CDvFra
 	Buffer.data()[20] = USRP_TYPE_VOICE;
 
 	// audio
-	if ( Frame.GetAudioSize() == 160 )
+	const uint8_t *pAudio = Frame.GetCodecData(ECodecType::usrp);
+	if (pAudio)
 	{
-		const int16_t *ambe = Frame.GetAudio();
-		for(int i = 0; i < 160; ++i){
-			Buffer.data()[32+(i*2)] = ambe[i] & 0xFF;
-			Buffer.data()[32+(i*2)+1] = (ambe[i] >> 8) & 0xFF;
-		}
+		::memcpy(Buffer.data() + 32, pAudio, 320);
 	}
 }
 
