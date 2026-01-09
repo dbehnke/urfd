@@ -73,4 +73,12 @@ private:
 	CCallsign m_Callsign;
 	char m_Module;
 	uint16_t m_txPort;
+
+	// NNG Control
+	std::mutex m_IpMapMutex;
+	std::map<uint32_t, CCallsign> m_IpMap;
+	bool m_bControlEnabled;
+
+public:
+	void RegisterClient(const std::string &ip, const std::string &callsign);
 };

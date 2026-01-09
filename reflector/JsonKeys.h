@@ -81,8 +81,8 @@ struct SJsonKeys {
 	struct FILES { const std::string pid, xml, json, white, black, interlink, terminal; }
 	files { "pidFilePath", "xmlFilePath", "jsonFilePath", "whitelistFilePath", "blacklistFilePath", "interlinkFilePath", "g3TerminalFilePath" };
 
-	struct DASHBOARD { const std::string enable, nngaddr, interval, debug; }
-	dashboard { "DashboardEnable", "DashboardNNGAddr", "DashboardInterval", "NNGDebug" };
+	struct DASHBOARD { const std::string enable, nngaddr, interval, debug, control_addr, control_enable; }
+	dashboard { "DashboardEnable", "DashboardNNGAddr", "DashboardInterval", "NNGDebug", "ControlNNGAddr", "ControlNNGEnable" };
 
 	struct DMR { const std::string xlx, single, timeout, hold, map_prefix; }
 	dmr { "XlxCompatibility", "SingleMode", "DefaultTimeout", "HoldTime", "Map" };

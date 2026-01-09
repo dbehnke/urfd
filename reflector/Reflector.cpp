@@ -20,6 +20,7 @@
 #include <string.h>
 
 #include "Global.h"
+#include "USRPProtocol.h"
 
 CReflector::CReflector() {}
 
@@ -137,6 +138,28 @@ bool CReflector::Start(void)
 	PutDHTConfig();
 #endif
 
+	// NNG Control
+	if (g_Configure.GetBoolean(g_Keys.dashboard.control_enable))
+	{
+		CUSRPProtocol *pUSRP = nullptr;
+		m_Protocols.Lock();
+		for (auto it = m_Protocols.begin(); it != m_Protocols.end(); ++it)
+		{
+			pUSRP = dynamic_cast<CUSRPProtocol*>(it->get());
+			if (pUSRP) break;
+		}
+		m_Protocols.Unlock();
+
+		if (pUSRP)
+		{
+			m_NNGControl.Start(g_Configure.GetString(g_Keys.dashboard.control_addr), pUSRP);
+		}
+		else
+		{
+			std::cerr << "NNG Control enabled but USRP Protocol not found!" << std::endl;
+		}
+	}
+
 	return false;
 }
 
@@ -173,7 +196,6 @@ void CReflector::Stop(void)
 	g_LNid.LookupClose();
 	g_LYtr.LookupClose();
 
-#ifndef NO_DHT
 	// kill the DHT
 	node.cancelPut(refhash, toUType(EUrfdValueID::Config));
 	node.cancelPut(refhash, toUType(EUrfdValueID::Peers));
@@ -182,6 +204,8 @@ void CReflector::Stop(void)
 	node.shutdown({}, true);
 	node.join();
 #endif
+
+	m_NNGControl.Stop();
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////
@@ -450,6 +474,9 @@ void CReflector::MaintenanceThread()
 			}
 
 			std::this_thread::sleep_for(std::chrono::milliseconds(100));
+			
+			// Poll Control NNG
+			m_NNGControl.Poll();
 		}
 	}
 }

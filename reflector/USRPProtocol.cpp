@@ -53,7 +53,8 @@ bool CUSRPProtocol::Initialize(const char *type, const EProtocol ptype, const ui
 	if (scs.compare("NONE"))
 	{
 		m_Callsign.SetCallsign(scs, false);
-		CIp ip(AF_INET, uint16_t(g_Configure.GetUnsigned(g_Keys.usrp.txport)), g_Configure.GetString(g_Keys.usrp.ip).c_str());
+		m_txPort = g_Configure.GetUnsigned(g_Keys.usrp.txport);
+		CIp ip(AF_INET, m_txPort, g_Configure.GetString(g_Keys.usrp.ip).c_str());
 		auto newclient = std::make_shared<CUSRPClient>(m_Callsign, ip);
 		newclient->SetReflectorModule(m_Module);
 		g_Reflector.GetClients()->AddClient(newclient);
@@ -110,6 +111,8 @@ bool CUSRPProtocol::Initialize(const char *type, const EProtocol ptype, const ui
 
 	// update time
 	m_LastKeepaliveTime.start();
+
+	m_bControlEnabled = g_Configure.GetBoolean(g_Keys.dashboard.control_enable);
 
 	// done
 	return true;
@@ -291,7 +294,22 @@ bool CUSRPProtocol::IsValidDvPacket(const CIp &Ip, const CBuffer &Buffer, std::u
 		if ( !stream )
 		{
 			m_uiStreamId = static_cast<uint32_t>(::rand());
-			CCallsign csMY = m_Callsign;
+			CCallsign csMY;
+			
+			// check map if control enabled
+			bool bFound = false;
+			if (m_bControlEnabled) {
+				std::lock_guard<std::mutex> lock(m_IpMapMutex);
+				auto it = m_IpMap.find(Ip.GetAddr());
+				if (it != m_IpMap.end()) {
+					csMY = it->second;
+					bFound = true;
+				}
+			}
+			
+			if (!bFound)
+				csMY = m_Callsign;
+			
 			CCallsign rpt1 = m_Callsign;
 			CCallsign rpt2 = m_ReflectorCallsign;
 			rpt1.SetCSModule(m_Module);
@@ -355,28 +373,79 @@ void CUSRPProtocol::EncodeUSRPHeaderPacket(const CDvHeaderPacket &Header, uint32
 	memcpy(Buffer.data()+46, cs.c_str(), cs.size());
 }
 
-void CUSRPProtocol::EncodeUSRPPacket(const CDvHeaderPacket &Header, const CDvFramePacket &DvFrame, uint32_t iSeq, CBuffer &Buffer, bool islast) const
+void CUSRPProtocol::EncodeUSRPPacket(const CDvHeaderPacket &Header, const CDvFramePacket &Frame, uint32_t iSeq, CBuffer &Buffer, bool last) const
 {
-	if(islast)
-	{
-		const uint32_t cnt = htonl(iSeq);
-		Buffer.resize(32);
-		memset(Buffer.data(), 0, 32);
-		memcpy(Buffer.data(), "USRP", 4);
-		memcpy(Buffer.data() + 4, &cnt, 4);
-		Buffer.data()[15] = USRP_KEYUP_FALSE;
+	Buffer.resize(352);
+	::memcpy(Buffer.data(), "USRP", 4);
 
-	}
-	else
+	// seq
+	Buffer.data()[4] = (iSeq >> 24) & 0xFF;
+	Buffer.data()[5] = (iSeq >> 16) & 0xFF;
+	Buffer.data()[6] = (iSeq >> 8) & 0xFF;
+	Buffer.data()[7] = iSeq & 0xFF;
+
+	// memory
+	//Buffer.data()[8] = (usage >> 24) & 0xFF;
+	//Buffer.data()[9] = (usage >> 16) & 0xFF;
+	//Buffer.data()[10] = (usage >> 8) & 0xFF;
+	//Buffer.data()[11] = usage & 0xFF;
+
+	// keyups
+	Buffer.data()[15] = (last) ? USRP_KEYUP_FALSE : USRP_KEYUP_TRUE;
+
+	// type
+	Buffer.data()[20] = USRP_TYPE_VOICE;
+
+	// audio
+	if ( Frame.GetAudioSize() == 160 )
 	{
-		std::string cs = Header.GetMyCallsign().GetCS();
-		const uint32_t cnt = htonl(iSeq);
-		Buffer.resize(352);
-		memset(Buffer.data(), 0, 352);
-		memcpy(Buffer.data(), "USRP", 4);
-		memcpy(Buffer.data() + 4, &cnt, 4);
-		Buffer.data()[15] = USRP_KEYUP_TRUE;
-		memcpy(Buffer.data() + 32, DvFrame.GetCodecData(ECodecType::usrp), 320);
+		const int16_t *ambe = Frame.GetAudio();
+		for(int i = 0; i < 160; ++i){
+			Buffer.data()[32+(i*2)] = ambe[i] & 0xFF;
+			Buffer.data()[32+(i*2)+1] = (ambe[i] >> 8) & 0xFF;
+		}
+	}
+}
+
+void CUSRPProtocol::RegisterClient(const std::string &ip, const std::string &callsign)
+{
+	if (!m_bControlEnabled) return;
+
+	uint32_t addr = CIp(ip.c_str()).GetAddr();
+	CCallsign cs(callsign);
+
+	{
+		std::lock_guard<std::mutex> lock(m_IpMapMutex);
+		m_IpMap[addr] = cs;
+	}
+
+	// Check if we need to close an existing stream for this IP
+	// iterate all streams in base class
+	for (auto const& [id, stream] : m_Streams) {
+		const CIp* ownerIp = stream->GetOwnerIp();
+		if (ownerIp && ownerIp->GetAddr() == addr) {
+			// Found a stream for this IP. Close it to force re-identification.
+			// accessing stream is safe because it's a shared_ptr
+			// But ClosePacketStream should be called by Reflector?
+			// Protocol::CheckStreamsTimeout checks timestamps.
+			// Actually we can just mark it as expired or closed?
+			// CProtocol doesn't have a "CloseStream" method for a specific stream exposed easily.
+			// But we have the logical stream. CPacketStream::ClosePacketStream closes the internal queue but doesn't remove it from m_Streams immediately?
+			// Accessing internal data of stream...
+			// Best way: Just change the user callsign in the stream header?
+			// m_DvHeader in CPacketStream.
+			// But CPacketStream::GetOwnerClient() has the Client object which determines identity.
+			// If we modify the header, the Client object is still the old one.
+			// We MUST close the stream so Reflector::RouterThread stops using it, and a new one is created.
+			
+			// We can't easily call Reflector::CloseStream from here (circular dependency, or need reference).
+			// However, if we manually ClosePacketStream(), the next Read/Pop might return null/empty or Reflector checks IsOpen.
+			if (stream->IsOpen()) {
+				std::cout << "USRP: Force closing stream for " << ip << " to update callsign to " << callsign << std::endl;
+				stream->ClosePacketStream(); 
+				// The client logic in Reflector or Protocol will handle cleanup eventually.
+			}
+		}
 	}
 }
 
