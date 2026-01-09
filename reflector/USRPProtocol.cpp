@@ -436,21 +436,15 @@ void CUSRPProtocol::RegisterClient(const std::string &ip, const std::string &cal
 		if (ownerIp && ownerIp->GetAddr() == addr) {
 			if (stream->IsOpen()) {
 				std::cout << "USRP: Force closing stream for " << ip << " to update callsign to " << callsign << std::endl;
+				
+				// Manually demote client and close stream to avoid Reflector::CloseStream blocking wait
+				// and ensure OpenStream will succeed (it checks IsAMaster())
+				g_Reflector.GetClients(); // Locks clients
+				auto client = stream->GetOwnerClient();
+				if (client) client->NotAMaster();
+				g_Reflector.ReleaseClients(); // Unlocks clients
+				
 				stream->ClosePacketStream();
-				// CRITICAL: We must remove it from the map immediately, otherwise Reflector::OpenStream 
-				// will see the old (closed) stream in IsStreamOpen() check (loop detection) and refuse to open a new one.
-				// m_Streams is protected by the Protocol lock in the main loop, but here we are in a different thread context?
-				// Wait, RegisterClient is called from NNGControl::Poll which is called from MaintenanceThread.
-				// m_Streams is accessed by Task() (via GetStream, CheckStreamsTimeout) in the ProtocolThread.
-				// This is a race condition if we delete from map without lock.
-				// CProtocol doesn't expose a mutex for m_Streams.
-				// However, CProtocol::Task() is running in parallel.
-				
-				// Workaround: We can't delete from map safely without lock.
-				// But we CAN mark the stream ID as 'invalid' in the map if we could.
-				// Better approach: In IsValidDvPacket, if we find a closed stream, we should probably REMOVE it from the map there (where it's safe as we are in Task).
-				
-				// Let's modify IsValidDvPacket instead to handle the map cleanup.
 			}
 		}
 	}
