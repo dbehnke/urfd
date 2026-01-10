@@ -94,24 +94,15 @@ void CM17Protocol::Task(void)
 		{
             // Find Client
             std::shared_ptr<CClient> client = g_Reflector.GetClients()->FindClient(Ip, EProtocol::m17);
-            if (!client) g_Reflector.ReleaseClients(); // FindClient locks loop, we only need it briefly? No, FindClient returns shared_ptr, we release lock inside FindClient? No.
-            // g_Reflector.GetClients()->FindClient returns ptr. We must NOT hold lock? 
-            // CReflector::GetClients() returns pointer to collection.
-            // Usually we do: auto clients = g_Reflector.GetClients(); ... g_Reflector.ReleaseClients();
-            // Reflector.h: GetClients Lock()s. ReleaseClients Unlock()s.
-            // We need to manage lock.
-            
-            client = g_Reflector.GetClients()->FindClient(Ip, EProtocol::m17);
             g_Reflector.ReleaseClients();
             
             if (client) {
-             // Update Call/Module from packet if needed?
-             // Usually client is established.
+                 client->Alive();
             }
             
             // Check for PARROT
             bool isParrot = false;
-            if (Header->IsDvHeader()) {
+            if (Header) {
                  CCallsign rpt2(Header->GetRpt2Callsign());
                  if (rpt2.GetCS() == "M17-PARROT" || rpt2.GetCS() == "       ECHO") {
                      isParrot = true;
