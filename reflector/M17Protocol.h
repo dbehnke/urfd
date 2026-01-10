@@ -26,6 +26,7 @@
 #include "DVFramePacket.h"
 #include "M17CRC.h"
 
+#include "InterlinkMap.h"
 #include <map>
 #include <string>
 #include <memory>
@@ -40,6 +41,13 @@ class CParrot;
 
 ////////////////////////////////////////////////////////////////////////////////////////
 // class
+
+// SInterConnect struct definition
+struct SInterConnect {
+    char magic[4];
+    char callsign[8];
+    char modules[27];
+};
 
 class CM17StreamCacheItem
 {
@@ -81,9 +89,13 @@ protected:
 	// keepalive helpers
 	void HandleKeepalives(void);
 
+	// peer helpers
+	void HandlePeerLinks(void);
+
 	// stream helpers
 	void OnDvHeaderPacketIn(std::unique_ptr<CDvHeaderPacket> &, const CIp &);
 	virtual void OnDvFramePacketIn(std::unique_ptr<CDvFramePacket> &, const CIp * = nullptr) override;
+	virtual bool OnPacketIn(CM17Packet &packet, const std::shared_ptr<CClient> client);
 
 private:
 	// packet decoding helpers
@@ -91,24 +103,31 @@ private:
 	bool IsValidListenPacket(const CBuffer &, CCallsign &, char &);
 	bool IsValidDisconnectPacket(const CBuffer &, CCallsign &);
 	bool IsValidKeepAlivePacket(const CBuffer &, CCallsign &);
+	bool IsValidInterlinkConnect(const CBuffer &, const CIp &, CCallsign &, char *);
+	bool IsValidInterlinkAcknowledge(const CBuffer &, CCallsign &, char *);
 	bool IsValidPacketModePacket(const CBuffer &, CCallsign &, CCallsign &);
 	bool IsValidDvPacket(const CBuffer &, std::unique_ptr<CDvHeaderPacket> &, std::unique_ptr<CDvFramePacket> &);
 
 	// packet encoding helpers
 	void EncodeKeepAlivePacket(CBuffer &);
+	void EncodeInterlinkConnectPacket(SInterConnect &connect, const char *modules);
+	void EncodeInterlinkAckPacket(SInterConnect &ackn, const char *modules);
+	void EncodeInterlinkNackPacket(uint8_t *buffer);
 	void EncodeM17Packet(CM17Packet &packet, const CDvHeaderPacket &, const CDvFramePacket *, uint32_t) const;
 
 	// parrot
-	void HandleParrot(const CIp &Ip, const CBuffer &Buffer, bool isStream);
+	void HandleParrot(const std::shared_ptr<CClient> &client, const CBuffer &Buffer, bool isStream, uint16_t streamId = 0, uint16_t frameNumber = 0);
 
 protected:
 	// for keep alive
 	CTimer m_LastKeepaliveTime;
+	CTimer m_LastPeersLinkTime; // for peer links
 
 	// for queue header caches
 	std::unordered_map<char, CM17StreamCacheItem> m_StreamsCache;
 
 private:
 	CM17CRC m17crc;
-    std::map<std::string, std::shared_ptr<CParrot>> m_ParrotMap;
+	CInterlinkMap m_M17Interlinks;
+	std::map<std::shared_ptr<CClient>, std::shared_ptr<CParrot>> m_ParrotMap;
 };
