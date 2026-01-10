@@ -77,6 +77,8 @@ void CM17StreamParrot::playThread()
     
 	for (size_t n = 0; n < size; n++)
 	{
+        if (m_stop) break;
+
 		size_t length = m_is3200 ? 16 : 8;
         pkt.SetPayload(m_data[n].data());
         
