@@ -290,10 +290,12 @@ void CM17Protocol::Task(void)
 			}
             else {
                 // Check peers
-                auto peer = g_Reflector.GetPeers()->FindPeer(Ip, EProtocol::m17);
+                CPeers* peers = g_Reflector.GetPeers();
+                auto peer = peers->FindPeer(Ip, EProtocol::m17);
                 if (peer) {
-                    g_Reflector.GetPeers()->RemovePeer(peer);
+                    peers->RemovePeer(peer);
                 }
+                g_Reflector.ReleasePeers();
             }
 			g_Reflector.ReleaseClients();
             // Also check peers if not client?
@@ -312,8 +314,10 @@ void CM17Protocol::Task(void)
 			g_Reflector.ReleaseClients();
             
             // Should also check Peers?
-            auto peer = g_Reflector.GetPeers()->FindPeer(Ip, EProtocol::m17);
+            CPeers* peers = g_Reflector.GetPeers();
+            auto peer = peers->FindPeer(Ip, EProtocol::m17);
             if (peer) peer->Alive();
+            g_Reflector.ReleasePeers();
 		}
 #define M17_RECONNECT_PERIOD 60000 // 1 Minute
         else if ( IsValidInterlinkConnect(Buffer, Ip, Callsign, mods) )
@@ -333,11 +337,13 @@ void CM17Protocol::Task(void)
             if (m_M17Interlinks.IsCallsignListed(Callsign.GetCS(), ' '))
             {
                  // Create Peer
-                 if (nullptr == g_Reflector.GetPeers()->FindPeer(Callsign, EProtocol::m17))
+                 CPeers* peers = g_Reflector.GetPeers();
+                 if (nullptr == peers->FindPeer(Callsign, EProtocol::m17))
                  {
                       // Add Peer
-                      g_Reflector.GetPeers()->AddPeer(std::make_shared<CM17Peer>(Callsign, Ip, mods));
+                      peers->AddPeer(std::make_shared<CM17Peer>(Callsign, Ip, mods));
                  }
+                 g_Reflector.ReleasePeers();
             }
         }
 		else
@@ -936,16 +942,17 @@ void CM17Protocol::HandleParrot(const std::shared_ptr<CClient> &client, const CB
 
 void CM17Protocol::HandlePeerLinks(void)
 {
-	auto pit = g_Reflector.GetPeers()->begin();
+	CPeers* peers = g_Reflector.GetPeers();
+	auto pit = peers->begin();
 	std::shared_ptr<CPeer> peer = nullptr;
-	while ((peer = g_Reflector.GetPeers()->FindNextPeer(EProtocol::m17, pit)))
+	while ((peer = peers->FindNextPeer(EProtocol::m17, pit)))
 	{
 		const auto cs = peer->GetCallsign().GetCS();
 		if (nullptr == m_M17Interlinks.FindMapItem(std::string(cs)))
 		{
 			Send("DISC", peer->GetIp());
 			// std::cout << "Sent disconnect packet to M17 peer " << cs << " at " << peer->GetIp() << std::endl;
-			g_Reflector.GetPeers()->RemovePeer(peer);
+			peers->RemovePeer(peer);
 		}
 	}
 
@@ -953,7 +960,7 @@ void CM17Protocol::HandlePeerLinks(void)
 	{
 		auto &item = it->second;
 		const auto cs = it->first; 
-		if (nullptr == g_Reflector.GetPeers()->FindPeer(cs, EProtocol::m17))
+		if (nullptr == peers->FindPeer(cs, EProtocol::m17))
 		{
             if (item.GetIp().IsSet()) {
 			    SInterConnect connect;
@@ -964,6 +971,7 @@ void CM17Protocol::HandlePeerLinks(void)
             }
 		}
 	}
+    g_Reflector.ReleasePeers();
 }
 
 bool CM17Protocol::OnPacketIn(CM17Packet &packet, const std::shared_ptr<CClient> client)
