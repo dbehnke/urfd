@@ -25,6 +25,7 @@
 #include "Peers.h"
 #include "Protocols.h"
 #include "PacketStream.h"
+#include "NNGControl.h"
 
 #ifndef NO_DHT
 #include "dht-values.h"
@@ -109,6 +110,7 @@ protected:
 	CClients   m_Clients;          // list of linked repeaters/nodes/peers's modules
 	CPeers     m_Peers;            // list of linked peers
 	CProtocols m_Protocols;        // list of supported protocol handlers
+	CNNGControl m_NNGControl;
 
 	// queues
 	std::unordered_map<char, std::shared_ptr<CPacketStream>> m_Stream;

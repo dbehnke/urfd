@@ -543,6 +543,10 @@ bool CConfigure::ReadData(const std::string &path)
 					data[g_Keys.dashboard.interval] = getUnsigned(value, "Dashboard Interval", 1, 3600, 10);
 				else if (0 == key.compare("NNGDebug"))
 					data[g_Keys.dashboard.debug] = IS_TRUE(value[0]);
+				else if (0 == key.compare("ControlNNGAddr"))
+					data[g_Keys.dashboard.control_addr] = value;
+				else if (0 == key.compare("ControlNNGEnable"))
+					data[g_Keys.dashboard.control_enable] = IS_TRUE(value[0]);
 				else
 					badParam(key);
 				break;
