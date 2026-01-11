@@ -521,6 +521,12 @@ void CCallsign::CodeIn(const uint8_t *in)
 	m_coded = in[0];
 	for (int i=1; i<6; i++)
 		m_coded = (m_coded << 8) | in[i];
+	
+	if (m_coded == 0xffffffffffffu) {
+		SetCallsign("@ALL");
+		return;
+	}
+
 	if (m_coded > 0xf46108ffffffu) {
 		SetCallsign("@INVALID");
 		return;
@@ -588,6 +594,16 @@ void CCallsign::CodeOut(uint8_t *out) const
 // called to calculate the m17 encoded cs
 void CCallsign::CSIn()
 {
+	// check for @ALL
+	char tmp[10];
+	memcpy(tmp, m_Callsign.c, 9);
+	tmp[9] = 0;
+	if (0 == strcmp(tmp, "@ALL     "))
+	{
+		m_coded = 0xffffffffffffu;
+		return;
+	}
+
 	const std::string m17_alphabet(M17CHARACTERS);
 	auto pos = m17_alphabet.find(m_Module);
 	m_coded = pos;

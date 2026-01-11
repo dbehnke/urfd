@@ -981,15 +981,25 @@ bool CM17Protocol::OnPacketIn(CM17Packet &packet, const std::shared_ptr<CClient>
     // Destination
     CCallsign dst(packet.GetDestCallsign());
     
+    // Rewrite M17- prefix to @ALL (matching mrefd behavior)
+    const auto cs = dst.GetCS();
+    if (0 == cs.compare(0, 4, "M17-"))
+    {
+        dst.SetCallsign("@ALL");
+        packet.SetDestCallsign(dst);
+        packet.CalcCRC();
+    }
+    
     // Check for Group / Broadcast Types
-    bool isAll = (dst.GetCS() == "M17-ALL" || dst.GetCS() == "       ALL" || dst.GetCS() == "ALL       ");
+    // dst is now updated to @ALL if it was M17-xxxx
+    bool isAll = (dst.GetCS() == "@ALL" || dst.GetCS() == "M17-ALL" || dst.GetCS() == "       ALL" || dst.GetCS() == "ALL       ");
     bool isReflector = (dst.GetCS().find(g_Reflector.GetCallsign().GetCS()) == 0); // Starts with Reflector Callsign
     
     char targetModule = 0;
     bool isGroupCall = false;
     
     if (isAll) {
-        // Broadcast to Source Module
+        // Broadcast to Source Module (Contextual Broadcast)
         targetModule = client->GetReflectorModule();
         isGroupCall = true;
     } 

@@ -88,6 +88,7 @@ public:
 	uint16_t GetStreamId() const;
 	uint16_t GetCRC() const;
 	void SetCRC(uint16_t crc);
+	void CalcCRC();
 	void SetDestCallsign(const CCallsign &cs);
 	void SetSourceCallsign(const CCallsign &cs);
 	void SetStreamId(uint16_t id);
