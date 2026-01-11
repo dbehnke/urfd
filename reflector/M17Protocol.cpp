@@ -961,6 +961,9 @@ void CM17Protocol::HandleParrot(const std::shared_ptr<CClient> &client, const CB
 
 void CM17Protocol::CheckStreamsTimeout(void)
 {
+	// check for regular stream timeouts (inherited from CProtocol)
+	CProtocol::CheckStreamsTimeout();
+
 	// check each item in the parrot map
 	for (auto pit = m_ParrotMap.begin(); pit != m_ParrotMap.end();)
 	{
