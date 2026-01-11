@@ -643,9 +643,6 @@ void CM17Protocol::HandleQueue(void)
 						uint16_t p_crc = m17crc.CalcCRC(m17pkt.GetBuffer(), m17pkt.GetSize() - 2);
 						m17pkt.SetCRC(p_crc);
 
-						// now send the packet
-                        CBuffer sendBuf;
-                        sendBuf.Append(m17pkt.GetBuffer(), m17pkt.GetSize());
 						Send(sendBuf, client->GetIp());
 					}
 				}
@@ -655,6 +652,9 @@ void CM17Protocol::HandleQueue(void)
 			}
 		}
 	}
+
+    // handle parrot timeout
+    CheckStreamsTimeout();
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////
@@ -955,6 +955,45 @@ void CM17Protocol::HandleParrot(const std::shared_ptr<CClient> &client, const CB
         m_ParrotMap.erase(client);
     }
 }
+
+void CM17Protocol::CheckStreamsTimeout(void)
+{
+	// check each item in the parrot map
+	for (auto pit = m_ParrotMap.begin(); pit != m_ParrotMap.end();)
+	{
+		switch (pit->second->GetState())
+		{
+		case EParrotState::record:
+			if (pit->second->IsExpired())
+			{
+                 // Stream finished recording (timeout), so start playback
+				// std::cout << "Parrot stream from " << pit->second->GetSRC() << " timed out! Playing..." << std::endl;
+				pit->second->Play();
+			}
+			pit++;
+			break;
+		case EParrotState::done:
+            // Playback finished
+			if (pit->second->IsStream())
+			{
+				auto psp = static_cast<CM17StreamParrot *>(pit->second.get());
+				// std::cout << psp->GetSize() << " packet parrot stream from " << psp->GetSRC() << " played back to " << pit->first->GetCallsign() << " at " << pit->first->GetIp() << std::endl;
+			}
+			else
+			{
+				// std::cout << "Parrot packet from " << pit->second->GetSRC() << " played back to " << pit->first->GetCallsign() << " at " << pit->first->GetIp() << std::endl;
+			}
+			pit->second->Quit();		// get() the future
+			pit->second.reset();		// destroy the parrot object
+			pit = m_ParrotMap.erase(pit); // remove the map std::pair, incrementing the pointer
+			break;
+		default:
+             pit++;
+			break;
+		}
+	}
+}
+
 
 void CM17Protocol::HandlePeerLinks(void)
 {

@@ -117,6 +117,7 @@ private:
 
 	// parrot
 	void HandleParrot(const std::shared_ptr<CClient> &client, const CBuffer &Buffer, bool isStream, uint16_t streamId = 0, uint16_t frameNumber = 0);
+	void CheckStreamsTimeout(void);
 
 protected:
 	// for keep alive
