@@ -142,9 +142,10 @@ bool CCallsign::IsValid(void) const
 	// check callsign characters (Letter, Number, Space, -, ., /)
 	// We allow this for all positions to support M17 and numeric IDs
 	// Also allow # at the beginning for special M17 addresses
+    // And allow @ at the beginning for @ALL
 	for ( i = 0; i < CALLSIGN_LEN; i++ )
 	{
-		valid = valid && (IsLetter(m_Callsign.c[i]) || IsNumber(m_Callsign.c[i]) || IsSpace(m_Callsign.c[i]) || m_Callsign.c[i] == '-' || m_Callsign.c[i] == '.' || m_Callsign.c[i] == '/' || (i==0 && m_Callsign.c[i] == '#'));
+		valid = valid && (IsLetter(m_Callsign.c[i]) || IsNumber(m_Callsign.c[i]) || IsSpace(m_Callsign.c[i]) || m_Callsign.c[i] == '-' || m_Callsign.c[i] == '.' || m_Callsign.c[i] == '/' || (i==0 && (m_Callsign.c[i] == '#' || m_Callsign.c[i] == '@')));
 	}
 
 	// prefix
