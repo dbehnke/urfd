@@ -104,9 +104,9 @@ void CM17Protocol::Task(void)
             bool isParrot = false;
             if (Header) {
                  CCallsign rpt2(Header->GetRpt2Callsign());
-                 if (rpt2.GetCS() == "M17-PARROT" || rpt2.GetCS() == "       ECHO") {
-                     isParrot = true;
-                 }
+                 // Parrot check (substring "PARROT" or "ECHO")
+                 // Checks if "PARROT" exists in the callsign (mrefd behavior)
+                 bool isParrot = (std::string::npos != rpt2.GetCS().find("PARROT")) || (rpt2.GetCS() == "       ECHO");
                  // Handle @ALL rewriting & Routing
                  std::string sRpt2 = rpt2.GetCS();
                  // Trim trailing spaces for comparison
@@ -772,8 +772,9 @@ bool CM17Protocol::IsValidDvPacket(const CBuffer &Buffer, std::unique_ptr<CDvHea
 
 
 
+
 		// check validity of packets
-		if ( header && header->IsValid() && frame && frame->IsValid() )
+		if ( header && header->IsValidM17() && frame && frame->IsValid() )
 			return true;
 	}
 	return false;
