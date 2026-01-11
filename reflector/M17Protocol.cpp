@@ -976,37 +976,86 @@ void CM17Protocol::HandlePeerLinks(void)
 
 bool CM17Protocol::OnPacketIn(CM17Packet &packet, const std::shared_ptr<CClient> client)
 {
-    // Strict Routing: Only to M17 clients
-    
-    CClients *clients = g_Reflector.GetClients();
-    auto it = clients->begin();
-    std::shared_ptr<CClient> destClient = nullptr;
+    // Strict Routing: Only from M17 clients
     
     // Destination
     CCallsign dst(packet.GetDestCallsign());
-
-    // Iterate
-	while ( (destClient = clients->FindNextClient(EProtocol::m17, it)) != nullptr )
-	{
-        // Skip self
-        if (destClient == client) continue;
-        
-        // Strict Protocol Check (Redundant with FindNextClient(EProtocol::m17) but good for safety if Logic changes)
-        if (destClient->GetProtocol() != EProtocol::m17) continue;
-        
-        // Routing Logic
-        // 1. @ALL / M17-ALL
-        bool isAll = (dst.GetCS() == "M17-ALL" || dst.GetCS() == "       ALL" || dst.GetCS() == "ALL       ");
-        // 2. Exact Match
-        bool isMatch = (destClient->GetCallsign() == dst);
-        
-        if (isAll || isMatch)
+    
+    // Check for Group / Broadcast Types
+    bool isAll = (dst.GetCS() == "M17-ALL" || dst.GetCS() == "       ALL" || dst.GetCS() == "ALL       ");
+    bool isReflector = (dst.GetCS().find(g_Reflector.GetCallsign().GetCS()) == 0); // Starts with Reflector Callsign
+    
+    char targetModule = 0;
+    bool isGroupCall = false;
+    
+    if (isAll) {
+        // Broadcast to Source Module
+        targetModule = client->GetReflectorModule();
+        isGroupCall = true;
+    } 
+    else if (isReflector) {
+        // Broadcast to Targeted Module (Legacy DroidStar/MVoice behavior)
+        // e.g. "M17-REF C" -> Module C
+        targetModule = dst.GetCSModule();
+        // If module is ' ' space, assume source module or reject? 
+        // DroidStar usually sends "M17-REF C" where 'C' is the 8th char (index 7).
+        // CCallsign::GetModule returns that char.
+        if (targetModule == ' ') targetModule = client->GetReflectorModule();
+        isGroupCall = true;
+    }
+    
+    // Prepare Buffer once
+    CBuffer buf;
+    buf.Set(const_cast<uint8_t*>(packet.GetBuffer()), packet.GetSize());
+    
+    if (isGroupCall) {
+        // 1. Send to Clients on Target Module
+        CClients *clients = g_Reflector.GetClients();
+        auto it = clients->begin();
+        std::shared_ptr<CClient> destClient = nullptr;
+        while ( (destClient = clients->FindNextClient(EProtocol::m17, it)) != nullptr )
         {
-             CBuffer buf;
-             buf.Set(const_cast<uint8_t*>(packet.GetBuffer()), packet.GetSize());
-             Send(buf, destClient->GetIp());
+            if (destClient == client) continue; // Skip self
+            if (destClient->GetProtocol() != EProtocol::m17) continue;
+            
+            if (destClient->GetReflectorModule() == targetModule) {
+                Send(buf, destClient->GetIp());
+            }
         }
-	}
-    g_Reflector.ReleaseClients();
+        g_Reflector.ReleaseClients();
+        
+        // 2. Send to Peers (Interlinks)
+        CPeers *peers = g_Reflector.GetPeers();
+        auto pit = peers->begin();
+        std::shared_ptr<CPeer> peer = nullptr;
+        while ( (peer = peers->FindNextPeer(EProtocol::m17, pit)) != nullptr )
+        {
+            // Check if peer is subscribed to target module
+            // CPeer::GetReflectorModules() returns a char* string of modules e.g. "ABC"
+            if (peer->GetReflectorModules() && strchr(peer->GetReflectorModules(), targetModule)) {
+                 Send(buf, peer->GetIp());
+            }
+        }
+        g_Reflector.ReleasePeers();
+    } 
+    else {
+        // Private Call - Exact Match
+        CClients *clients = g_Reflector.GetClients();
+        auto it = clients->begin();
+        std::shared_ptr<CClient> destClient = nullptr;
+        while ( (destClient = clients->FindNextClient(EProtocol::m17, it)) != nullptr )
+        {
+            if (destClient == client) continue;
+            if (destClient->GetProtocol() != EProtocol::m17) continue;
+            
+            if (destClient->GetCallsign() == dst) {
+                Send(buf, destClient->GetIp());
+                // Should we stop after finding one? Private calls usually one. 
+                // But multiple sessions might exist? Keep going to be safe.
+            }
+        }
+        g_Reflector.ReleaseClients();
+    }
+
     return true; 
 }
