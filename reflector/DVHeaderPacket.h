@@ -75,6 +75,7 @@ public:
 
 	// get valid
 	bool IsValid(void) const;
+    bool IsValidM17(void) const;
 
 	// get callsigns
 	const CCallsign &GetUrCallsign(void) const      { return m_csUR; }

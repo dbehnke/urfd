@@ -71,6 +71,7 @@ public:
 
 	// status
 	bool IsValid(void) const;
+    bool IsValidM17(void) const;
 	bool HasSuffix(void) const;
 	bool HasModule(void) const { return m_Module != ' '; }
 

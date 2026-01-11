@@ -19,7 +19,7 @@ class CParrot
 {
 public:
 	CParrot(const CCallsign &src_addr, std::shared_ptr<CM17Client> spc, uint16_t ft, CM17Protocol *proto) 
-        : m_src(src_addr), m_client(spc), m_frameType(ft), m_state(EParrotState::record), m_proto(proto) {}
+        : m_src(src_addr), m_client(spc), m_frameType(ft), m_state(EParrotState::record), m_stop(false), m_proto(proto) {}
 	virtual ~CParrot() { Quit(); }
 	virtual void Add(const CBuffer &Buffer, uint16_t streamId, uint16_t frameNumber) = 0;
 	virtual void AddPacket(const CBuffer &Buffer) = 0;
@@ -28,7 +28,7 @@ public:
 	virtual bool IsStream() const = 0;
 	EParrotState GetState() const { return m_state; }
 	const CCallsign &GetSRC() const { return m_src; }
-	void Quit() { if (m_fut.valid()) m_fut.get(); }
+	void Quit() { m_stop = true; if (m_fut.valid()) m_fut.get(); }
 
 protected:
 	const CCallsign m_src;
@@ -36,6 +36,7 @@ protected:
 	const uint16_t m_frameType;
 	std::atomic<EParrotState> m_state;
 	std::future<void> m_fut;
+    std::atomic<bool> m_stop;
 	CM17Protocol *m_proto;
 };
 

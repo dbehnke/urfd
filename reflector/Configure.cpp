@@ -73,6 +73,7 @@ static inline void trim(std::string &s) {
 #define JG3                      "G3"
 #define JG3TERMINALPATH          "G3TerminalPath"
 #define JINTERLINKPATH           "InterlinkPath"
+#define JM17INTERLINKPATH        "M17InterlinkPath"
 #define JIPADDRESS               "IPAddress"
 #define JIPADDRESSES             "IP Addresses"
 #define JIPV4BINDING             "IPv4Binding"
@@ -529,6 +530,8 @@ bool CConfigure::ReadData(const std::string &path)
 					data[g_Keys.files.black] = value;
 				else if (0 == key.compare(JINTERLINKPATH))
 					data[g_Keys.files.interlink] = value;
+				else if (0 == key.compare(JM17INTERLINKPATH))
+					data[g_Keys.files.m17interlink] = value;
 				else if (0 == key.compare(JG3TERMINALPATH))
 					data[g_Keys.files.terminal] = value;
 				else
@@ -884,6 +887,8 @@ bool CConfigure::ReadData(const std::string &path)
 		checkFile(JFILES, JBLACKLISTPATH, data[g_Keys.files.black]);
 	if (isDefined(ErrorLevel::fatal, JFILES, JINTERLINKPATH, g_Keys.files.interlink, rval))
 		checkFile(JFILES, JINTERLINKPATH, data[g_Keys.files.interlink]);
+	if (data.contains(g_Keys.files.m17interlink) && data[g_Keys.files.m17interlink].is_string())
+		checkFile(JFILES, JM17INTERLINKPATH, data[g_Keys.files.m17interlink]);
 	if (data.contains(g_Keys.g3.enable) && GetBoolean(g_Keys.g3.enable))
 	{
 		if (isDefined(ErrorLevel::fatal, JFILES, JG3TERMINALPATH, g_Keys.files.terminal, rval))

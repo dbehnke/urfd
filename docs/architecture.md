@@ -9,39 +9,30 @@ This document provides a high-level overview of the `urfd` (Universal Reflector)
 ### Core Components Diagram
 
 ```mermaid
-graph TD
+graph LR
+    %% Config: Improve spacing and curves
+    %%{init: {'flowchart': {'nodeSpacing': 40, 'rankSpacing': 60, 'curve': 'basis'}} }%%
+
     %% Nodes
     subgraph Interfaces
         direction TB
-        UDP_USRP[UDP: USRP]
-        UDP_YSF[UDP: YSF]
-        UDP_DMR[UDP: DMR]
-        UDP_M17[UDP: M17]
-        UDP_P25[UDP: P25]
-        UDP_NXDN[UDP: NXDN]
-        TCP_DMR[TCP: DMR]
+        Net_USRP[UDP: USRP]
+        Net_M17[UDP: M17]
+        Net_Common["Standard Ports<br/>(YSF, DMR, P25, NXDN)"]
     end
 
-    %% Spacer
-    spac1[ ]:::empty
-
     subgraph "Core: CReflector (Singleton)"
-        direction TB
-        Reflector[Reflector Manager]
+        direction LR
         
         subgraph "Protocol Handling"
             direction TB
             CProtos[CProtocols Manager]
             USRP[CUSRPProtocol]
-            YSF[CYSFProtocol]
-            DMR[CDMRProtocol]
+            spac_p1[ ]:::empty
             M17[CM17Protocol]
-            P25[CP25Protocol]
-            NXDN[CNXDNProtocol]
+            spac_p2[ ]:::empty
+            Common["Standard Protocols<br/>(YSF/DMR/P25/NXDN)"]
         end
-
-        %% Spacer inside Core
-        spac2[ ]:::empty
 
         subgraph "Session State"
             direction TB
@@ -49,9 +40,6 @@ graph TD
             Users[CUsers: Callsign Database]
             Streams[m_Streams: Active Audio Streams]
         end
-
-        %% Spacer
-        spac3[ ]:::empty
 
         subgraph "Routing Engine"
             direction TB
@@ -73,39 +61,32 @@ graph TD
         ASL["AllStar Link"]
         Dashboard["urfd-nng-dashboard"]
     end
-
-    %% Force Vertical Stacking of Protocols
-    UDP_USRP ~~~ UDP_YSF ~~~ UDP_DMR ~~~ UDP_M17 ~~~ UDP_P25 ~~~ UDP_NXDN ~~~ TCP_DMR
-    USRP ~~~ YSF ~~~ DMR ~~~ M17 ~~~ P25 ~~~ NXDN
     
-    %% Spacer connections
-    UDP_USRP ~~~ spac1 ~~~ CProtos
-    USRP ~~~ spac2 ~~~ Clients
-    Clients ~~~ spac3 ~~~ Router
+    %% M17 Internal Features
+    subgraph "M17 Subsystem"
+        direction TB
+        M17_Parrot[M17 Parrot Service]:::core
+    end
+    
+    %% Force Vertical Spacing
+    USRP ~~~ spac_p1 ~~~ M17 ~~~ spac_p2 ~~~ Common
 
     %% Relationships - Input
-    UDP_USRP --> USRP
-    UDP_YSF --> YSF
-    UDP_DMR --> DMR
-    UDP_M17 --> M17
-    UDP_P25 --> P25
-    UDP_NXDN --> NXDN
-    TCP_DMR --> DMR
+    Net_USRP --> USRP
+    Net_M17 --> M17
+    Net_Common --> Common
 
     %% Protocol Management
     CProtos --> USRP
-    CProtos --> YSF
-    CProtos --> DMR
     CProtos --> M17
-    CProtos --> P25
-    CProtos --> NXDN
+    CProtos --> Common
 
     %% Session Logic (All Protocols)
-    USRP & YSF & DMR & M17 & P25 & NXDN --> Clients
-    USRP & YSF & DMR & M17 & P25 & NXDN --> Users
+    USRP & M17 & Common --> Clients
+    USRP & M17 & Common --> Users
 
     %% Streaming Flow
-    USRP & YSF & DMR & M17 & P25 & NXDN -- "Push Packet" --> Streams
+    USRP & M17 & Common -- "Push Packet" --> Streams
     Streams -- "Audio Queue" --> Router
     
     %% Routing Logic & Transcoding
@@ -116,41 +97,34 @@ graph TD
     %% Output
     Router -- "Poll Stream" --> Streams
     Router -- "Get Subscribers" --> Clients
-    Router -- "Write Packet" --> USRP & YSF & DMR & M17 & P25 & NXDN
+    Router -- "Write Packet" --> USRP & M17 & Common
 
     %% Events & Control
-    Reflector --> NNG_PUB
+    Reflector[Reflector Manager] --> NNG_PUB
     NNG_REP -- "Register/Kick" --> USRP
     
     %% External Interactions
     NNG_PUB -.-> Dashboard
     Nexus -- "Manage" --> ASL
     Nexus -- "USRP Register" --> NNG_REP
-    ASL -- "Audio" --> UDP_USRP
+    ASL -- "Audio" --> Net_USRP
     
-    %% Future / Planned M17 Features
-    subgraph "Planned M17 Features"
-        direction TB
-        M17_Parrot[M17 Parrot Echo]:::planned
-        M17_Packet[Packet/SMS Handling]:::planned
-    end
-    
-    M17 -.-> M17_Parrot
-    M17 -.-> M17_Packet
+    %% M17 Features
+    M17 -- "Stream" --> M17_Parrot
+    M17_Parrot -- "Playback" --> M17
 
     %% Styling with high contrast text for dark mode
     classDef protocol fill:#e1f5fe,stroke:#01579b,stroke-width:2px,color:#000;
     classDef core fill:#fff3e0,stroke:#e65100,stroke-width:2px,color:#000;
     classDef thread fill:#f3e5f5,stroke:#4a148c,stroke-width:2px,color:#000;
     classDef external fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px,color:#000;
-    classDef planned fill:#f5f5f5,stroke:#bdbdbd,stroke-width:2px,stroke-dasharray: 5 5,color:#616161;
     classDef empty width:0px,height:0px,stroke-width:0px,fill:none;
     
-    class USRP,YSF,DMR,M17,P25,NXDN protocol;
-    class Reflector,Clients,Users,Streams,CProtos,TCD,Recorder core;
+    class USRP,M17,Common protocol;
+    class Reflector,Clients,Users,Streams,CProtos,TCD,Recorder,M17_Parrot core;
     class Router thread;
     class ASL,Nexus,Dashboard external;
-    class spac1,spac2,spac3 empty;
+    class spac_p1,spac_p2 empty;
 ```
 
 ## Data Flow Description
@@ -189,11 +163,56 @@ graph TD
 * `TCD`: Wrapper for the Transcoder library, handling codec conversion.
 * `AudioRecorder`: Manages writing audio streams to WAV/files.
 
-## Future Plans
+## M17 Protocol Features
 
-* **M17 Enhancements**:
-  * **Parrot Echo**: Native echo functionality for M17 streams (currently missing).
-  * **Packet/SMS**: Support for M17 data frames and text messaging.
+`urfd` implements detailed support for the M17 protocol, including:
+
+* **Parrot Service (Echo)**:
+  * Native M17 echo functionality.
+  * Triggered by calling `PARROT` (fuzzy matched, supports `M17-PARROT`, `#PARROT`).
+  * Includes safeguards: **30s recording limit** and **5s playback delay** (to allow network settling).
+* **Contextual Broadcast (@ALL)**:
+  * Support for `@ALL` packets (Broadcast).
+  * Logic to automatically route `@ALL` packets to the sender's current module if no module is specified (fixing `mvoice` compatibility).
+* **Stream Management**:
+  * Robust timeout detection for both Regular and Parrot streams to prevents "stuck" sessions.
+* **Packet/SMS Support**:
+  * Full routing for M17 Packet Mode (Data/SMS) frames.
+  * **Strict Routing**: Data frames are routed exclusively to M17 clients to prevent protocol mismatches.
+  * **Parrot Support**: SMS messages sent to `PARROT` are echoed back to the sender.
+
+### M17 Logic Flow
+
+The following diagram illustrates how M17 Audio and Packet Data are processed, including the Parrot service loop.
+
+```mermaid
+graph TD
+    %% Styling
+    classDef input fill:#e1f5fe,stroke:#01579b,stroke-width:2px,color:#000;
+    classDef decision fill:#fff3e0,stroke:#e65100,stroke-width:2px,shape:rhombus,color:#000;
+    classDef action fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px,color:#000;
+    classDef parrot fill:#f3e5f5,stroke:#4a148c,stroke-width:2px,color:#000;
+
+    PacketIn(M17 Packet In):::input --> IsVoice{Voice or Data?}:::decision
+
+    %% Voice Path
+    IsVoice -- Voice --> CheckParrot{Dest == PARROT?}:::decision
+    CheckParrot -- Yes --> Record[Record Stream]:::parrot
+    Record -- Timeout (5s) --> Playback[Playback Stream]:::parrot
+    Playback --> Output(Send to Client):::action
+    
+    CheckParrot -- No --> CheckALL{Dest == @ALL?}:::decision
+    CheckALL -- Yes --> FixMod[Set Target Module]:::action
+    FixMod --> RouteVoice[Route to Module]:::action
+    CheckALL -- No --> RouteVoice
+    
+    %% Data Path
+    IsVoice -- Data/SMS --> CheckParrotData{Dest == PARROT?}:::decision
+    CheckParrotData -- Yes --> EchoData[Echo SMS]:::parrot
+    EchoData --> Output
+    
+    CheckParrotData -- No --> RouteData[Strict Route to M17 Clients]:::action
+```
 
 ## Module Switching & Control Logic
 

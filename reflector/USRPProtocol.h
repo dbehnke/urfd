@@ -23,6 +23,8 @@
 #include "DVFramePacket.h"
 #include "Timer.h"
 #include "Clients.h"
+#include <deque>
+#include <mutex>
 
 // class
 
@@ -81,4 +83,9 @@ private:
 
 public:
 	void RegisterClient(const std::string &ip, const std::string &callsign);
+
+private:
+	std::mutex m_RegistrationMutex;
+	std::deque<std::pair<std::string, std::string>> m_RegistrationQueue;
+	void HandleRegistrations();
 };

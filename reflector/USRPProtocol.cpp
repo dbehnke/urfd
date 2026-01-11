@@ -132,6 +132,9 @@ void CUSRPProtocol::Task(void)
 	std::unique_ptr<CDvHeaderPacket> Header;
 	std::unique_ptr<CDvFramePacket>  Frame;
 
+	// process registrations
+	HandleRegistrations();
+
 	// handle incoming packets
 #if USRP_IPV6==true
 #if USRP_IPV4==true
@@ -429,23 +432,58 @@ void CUSRPProtocol::RegisterClient(const std::string &ip, const std::string &cal
 		m_IpMap[addr] = cs;
 	}
 
-	// Check if we need to close an existing stream for this IP
-	// iterate all streams in base class
-	for (auto const& [id, stream] : m_Streams) {
-		const CIp* ownerIp = stream->GetOwnerIp();
-		if (ownerIp && ownerIp->GetAddr() == addr) {
-			if (stream->IsOpen()) {
-				std::cout << "USRP: Force closing stream for " << ip << " to update callsign to " << callsign << std::endl;
-				
-				// Manually demote client and close stream to avoid Reflector::CloseStream blocking wait
-				// and ensure OpenStream will succeed (it checks IsAMaster())
-				g_Reflector.GetClients(); // Locks clients
-				auto client = stream->GetOwnerClient();
-				if (client) client->NotAMaster();
-				g_Reflector.ReleaseClients(); // Unlocks clients
-				
-				stream->ClosePacketStream();
+	{
+		std::lock_guard<std::mutex> lock(m_RegistrationMutex);
+		m_RegistrationQueue.push_back({ip, callsign});
+	}
+}
+
+void CUSRPProtocol::HandleRegistrations()
+{
+	std::deque<std::pair<std::string, std::string>> queue;
+	{
+		std::lock_guard<std::mutex> lock(m_RegistrationMutex);
+		if (m_RegistrationQueue.empty()) return;
+		queue.swap(m_RegistrationQueue);
+	}
+
+	for (const auto& req : queue) {
+		std::string ip = req.first;
+		std::string callsign = req.second;
+		uint32_t addr = CIp(ip.c_str()).GetAddr();
+
+		// Check if we need to close an existing stream for this IP
+		// iterate all streams in base class
+		// Note: We are now in the Task thread, so accessing m_Streams is safe!
+		auto it = m_Streams.begin();
+		while (it != m_Streams.end()) {
+			auto stream = it->second;
+			const CIp* ownerIp = stream->GetOwnerIp();
+			if (ownerIp && ownerIp->GetAddr() == addr) {
+				if (stream->IsOpen()) {
+					std::cout << "USRP: Force closing stream for " << ip << " to update callsign to " << callsign << std::endl;
+					
+					// Manually demote client and close stream to avoid Reflector::CloseStream blocking wait
+					// and ensure OpenStream will succeed (it checks IsAMaster())
+					g_Reflector.GetClients(); // Locks clients
+					auto client = stream->GetOwnerClient();
+					if (client) client->NotAMaster();
+					g_Reflector.ReleaseClients(); // Unlocks clients
+					
+					stream->ClosePacketStream();
+					
+					// Since we closed the stream, we should probably remove it from m_Streams map 
+					// or let the next packet handling do it?
+					// The original code didn't remove it from m_Streams, but CProtocol does invalidation.
+					// But wait, iterating m_Streams while modifying it is dangerous.
+					// CProtocol::m_Streams is an unordered_map.
+					// ClosePacketStream() doesn't remove from map.
+					// However, IsValidDvPacket/IsValidDvHeaderPacket logic handles expired/closes streams by checking IsOpen().
+					// So leaving it in the map but Closed is 'safe' ish, as long as we don't invalidate iterators if we were erasing.
+					// We are NOT erasing here, just calling methods on the object.
+				}
 			}
+			++it;
 		}
 	}
 }

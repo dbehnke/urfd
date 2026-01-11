@@ -78,8 +78,8 @@ struct SJsonKeys {
 	nxdniddb  { "nxdnIdDbUrl", "nxdnIdDbMode", "nxdnIdDbRefresh", "nxdnIdDbFilePath" },
 	ysftxrxdb {  "ysfIdDbUrl",  "ysfIdDbMode",  "ysfIdDbRefresh",  "ysfIdDbFilePath" };
 
-	struct FILES { const std::string pid, xml, json, white, black, interlink, terminal; }
-	files { "pidFilePath", "xmlFilePath", "jsonFilePath", "whitelistFilePath", "blacklistFilePath", "interlinkFilePath", "g3TerminalFilePath" };
+	struct FILES { const std::string pid, xml, json, white, black, interlink, m17interlink, terminal; }
+	files { "pidFilePath", "xmlFilePath", "jsonFilePath", "whitelistFilePath", "blacklistFilePath", "interlinkFilePath", "M17InterlinkPath", "g3TerminalFilePath" };
 
 	struct DASHBOARD { const std::string enable, nngaddr, interval, debug, control_addr, control_enable; }
 	dashboard { "DashboardEnable", "DashboardNNGAddr", "DashboardInterval", "NNGDebug", "ControlNNGAddr", "ControlNNGEnable" };

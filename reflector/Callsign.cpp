@@ -164,6 +164,33 @@ bool CCallsign::IsValid(void) const
 	return valid;
 }
 
+bool CCallsign::IsValidM17(void) const
+{
+	bool valid = true;
+	int i;
+
+	// check callsign characters (Letter, Number, Space, -, ., /)
+	// We allow this for all positions to support M17 and numeric IDs
+	// Also allow # or @ at the beginning for special M17 addresses
+	for ( i = 0; i < CALLSIGN_LEN; i++ )
+	{
+		valid = valid && (IsLetter(m_Callsign.c[i]) || IsNumber(m_Callsign.c[i]) || IsSpace(m_Callsign.c[i]) || m_Callsign.c[i] == '-' || m_Callsign.c[i] == '.' || m_Callsign.c[i] == '/' || (i==0 && (m_Callsign.c[i] == '#' || m_Callsign.c[i] == '@')));
+	}
+
+	// prefix
+	// all chars are number, letter, special char, or space
+	for ( i = 0; i < CALLSUFFIX_LEN; i++ )
+	{
+		 valid = valid && (IsLetter(m_Suffix.c[i]) || IsNumber(m_Suffix.c[i]) || IsSpace(m_Suffix.c[i]) || IsLetterLC(m_Suffix.c[i]) || IsSpecialChar(m_Suffix.c[i]));
+	}
+
+	// module
+	// is an letter or space
+	valid = valid && (IsLetter(m_Module) || IsSpace(m_Module));
+
+	return valid;
+}
+
 bool CCallsign::HasSuffix(void) const
 {
 	return 0x20202020u != m_Suffix.u;
@@ -521,6 +548,12 @@ void CCallsign::CodeIn(const uint8_t *in)
 	m_coded = in[0];
 	for (int i=1; i<6; i++)
 		m_coded = (m_coded << 8) | in[i];
+	
+	if (m_coded == 0xffffffffffffu) {
+		SetCallsign("@ALL");
+		return;
+	}
+
 	if (m_coded > 0xf46108ffffffu) {
 		SetCallsign("@INVALID");
 		return;
@@ -588,6 +621,15 @@ void CCallsign::CodeOut(uint8_t *out) const
 // called to calculate the m17 encoded cs
 void CCallsign::CSIn()
 {
+	// check for @ALL
+    // m_Callsign.c is 8 bytes.
+    // We check if it matches "@ALL" followed by spaces.
+	if (0 == memcmp(m_Callsign.c, "@ALL    ", 8))
+	{
+		m_coded = 0xffffffffffffu;
+		return;
+	}
+
 	const std::string m17_alphabet(M17CHARACTERS);
 	auto pos = m17_alphabet.find(m_Module);
 	m_coded = pos;
