@@ -18,7 +18,7 @@ CM17StreamParrot::CM17StreamParrot(const CCallsign &src_addr, std::shared_ptr<CM
 void CM17StreamParrot::Add(const CBuffer &Buffer, uint16_t streamId, uint16_t frameNumber)
 {
 	(void)frameNumber; // We generate our own sequence on playback
-	if (m_data.size() < 500u)
+	if (m_data.size() < 750u) // 30s limit (750 * 40ms)
 	{
 		m_streamId = streamId;
 		size_t length = m_is3200 ? 16 : 8;

@@ -642,7 +642,10 @@ void CM17Protocol::HandleQueue(void)
 						// set the packet crc
 						uint16_t p_crc = m17crc.CalcCRC(m17pkt.GetBuffer(), m17pkt.GetSize() - 2);
 						m17pkt.SetCRC(p_crc);
-
+                        
+                        // now send the packet
+                        CBuffer sendBuf;
+                        sendBuf.Append(m17pkt.GetBuffer(), m17pkt.GetSize());
 						Send(sendBuf, client->GetIp());
 					}
 				}
