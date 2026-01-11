@@ -200,3 +200,14 @@ bool CDvHeaderPacket::IsValid(void) const
 
 	return valid;
 }
+
+bool CDvHeaderPacket::IsValidM17(void) const
+{
+	bool valid = CPacket::IsValid();
+
+	valid &= m_csRPT1.IsValidM17();
+	valid &= m_csRPT2.IsValidM17();
+	valid &= m_csMY.IsValidM17();
+
+	return valid;
+}
