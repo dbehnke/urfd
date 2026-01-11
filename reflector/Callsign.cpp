@@ -142,10 +142,9 @@ bool CCallsign::IsValid(void) const
 	// check callsign characters (Letter, Number, Space, -, ., /)
 	// We allow this for all positions to support M17 and numeric IDs
 	// Also allow # at the beginning for special M17 addresses
-    // And allow @ at the beginning for @ALL
 	for ( i = 0; i < CALLSIGN_LEN; i++ )
 	{
-		valid = valid && (IsLetter(m_Callsign.c[i]) || IsNumber(m_Callsign.c[i]) || IsSpace(m_Callsign.c[i]) || m_Callsign.c[i] == '-' || m_Callsign.c[i] == '.' || m_Callsign.c[i] == '/' || (i==0 && (m_Callsign.c[i] == '#' || m_Callsign.c[i] == '@')));
+		valid = valid && (IsLetter(m_Callsign.c[i]) || IsNumber(m_Callsign.c[i]) || IsSpace(m_Callsign.c[i]) || m_Callsign.c[i] == '-' || m_Callsign.c[i] == '.' || m_Callsign.c[i] == '/' || (i==0 && m_Callsign.c[i] == '#'));
 	}
 
 	// prefix
@@ -162,6 +161,33 @@ bool CCallsign::IsValid(void) const
 	// dmr and nxdn id is not tested, as it can be 0 if station is not registered
 
 	// done
+	return valid;
+}
+
+bool CCallsign::IsValidM17(void) const
+{
+	bool valid = true;
+	int i;
+
+	// check callsign characters (Letter, Number, Space, -, ., /)
+	// We allow this for all positions to support M17 and numeric IDs
+	// Also allow # or @ at the beginning for special M17 addresses
+	for ( i = 0; i < CALLSIGN_LEN; i++ )
+	{
+		valid = valid && (IsLetter(m_Callsign.c[i]) || IsNumber(m_Callsign.c[i]) || IsSpace(m_Callsign.c[i]) || m_Callsign.c[i] == '-' || m_Callsign.c[i] == '.' || m_Callsign.c[i] == '/' || (i==0 && (m_Callsign.c[i] == '#' || m_Callsign.c[i] == '@')));
+	}
+
+	// prefix
+	// all chars are number, letter, special char, or space
+	for ( i = 0; i < CALLSUFFIX_LEN; i++ )
+	{
+		 valid = valid && (IsLetter(m_Suffix.c[i]) || IsNumber(m_Suffix.c[i]) || IsSpace(m_Suffix.c[i]) || IsLetterLC(m_Suffix.c[i]) || IsSpecialChar(m_Suffix.c[i]));
+	}
+
+	// module
+	// is an letter or space
+	valid = valid && (IsLetter(m_Module) || IsSpace(m_Module));
+
 	return valid;
 }
 
