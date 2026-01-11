@@ -42,7 +42,7 @@ void CM17StreamParrot::Play()
 
 bool CM17StreamParrot::IsExpired() const
 {
-	return m_lastHeard.time() > 1.6; // 1.6s timeout like mrefd
+	return m_lastHeard.time() > 5.0; // 5.0s timeout to allow network settling (user request)
 }
 
 void CM17StreamParrot::playThread()
