@@ -595,10 +595,9 @@ void CCallsign::CodeOut(uint8_t *out) const
 void CCallsign::CSIn()
 {
 	// check for @ALL
-	char tmp[10];
-	memcpy(tmp, m_Callsign.c, 9);
-	tmp[9] = 0;
-	if (0 == strcmp(tmp, "@ALL     "))
+    // m_Callsign.c is 8 bytes.
+    // We check if it matches "@ALL" followed by spaces.
+	if (0 == memcmp(m_Callsign.c, "@ALL    ", 8))
 	{
 		m_coded = 0xffffffffffffu;
 		return;
