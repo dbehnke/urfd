@@ -107,9 +107,24 @@ void CM17Protocol::Task(void)
                  if (rpt2.GetCS() == "M17-PARROT" || rpt2.GetCS() == "       ECHO") {
                      isParrot = true;
                  }
-                 // Handle @ALL rewriting
-                 if (!isParrot && strncmp(rpt2.GetCS().c_str(), "M17-", 4) == 0) {
-                     Header->SetRpt2Callsign(CCallsign("       ALL"));
+                 // Handle @ALL rewriting & Routing
+                 std::string sRpt2 = rpt2.GetCS();
+                 // Trim trailing spaces for comparison
+                 while (!sRpt2.empty() && sRpt2.back() == ' ') sRpt2.pop_back();
+
+                 if (!isParrot) {
+                     if (sRpt2 == "@ALL") {
+                          // If @ALL (encoded as 0xFFs), it likely lacks a module.
+                          // Broadcast to Source Module (Contextual Broadcast)
+                          if (Header->GetRpt2Module() == ' ') {
+                               if (client) Header->SetRpt2Module(client->GetReflectorModule());
+                          }
+                     } 
+                     else if (strncmp(sRpt2.c_str(), "M17-", 4) == 0) {
+                          // Rewrite M17-REF to @ALL for compatibility
+                          // M17-REF X preserves module X
+                          Header->SetRpt2Callsign(CCallsign("       ALL"));
+                     }
                  }
             } else {
                 // If frame, check if we are parroting
@@ -992,7 +1007,10 @@ bool CM17Protocol::OnPacketIn(CM17Packet &packet, const std::shared_ptr<CClient>
     
     // Check for Group / Broadcast Types
     // dst is now updated to @ALL if it was M17-xxxx
-    bool isAll = (dst.GetCS() == "@ALL" || dst.GetCS() == "M17-ALL" || dst.GetCS() == "       ALL" || dst.GetCS() == "ALL       ");
+    std::string sDst = dst.GetCS();
+    while (!sDst.empty() && sDst.back() == ' ') sDst.pop_back();
+
+    bool isAll = (sDst == "@ALL" || sDst == "M17-ALL" || sDst == "ALL");
     bool isReflector = (dst.GetCS().find(g_Reflector.GetCallsign().GetCS()) == 0); // Starts with Reflector Callsign
     
     char targetModule = 0;
