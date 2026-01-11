@@ -106,7 +106,7 @@ void CM17Protocol::Task(void)
                  CCallsign rpt2(Header->GetRpt2Callsign());
                  // Parrot check (substring "PARROT" or "ECHO")
                  // Checks if "PARROT" exists in the callsign (mrefd behavior)
-                 bool isParrot = (std::string::npos != rpt2.GetCS().find("PARROT")) || (rpt2.GetCS() == "       ECHO");
+                 isParrot = (std::string::npos != rpt2.GetCS().find("PARROT")) || (rpt2.GetCS() == "       ECHO");
                  // Handle @ALL rewriting & Routing
                  std::string sRpt2 = rpt2.GetCS();
                  // Trim trailing spaces for comparison
