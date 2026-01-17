@@ -1,9 +1,13 @@
 #include "NNGVoiceStream.h"
 #include "Reflector.h"
 #include "USRPClient.h"
+#include "DVHeaderPacket.h"
+#include "DVFramePacket.h"
+#include "PacketStream.h"
 #include <nlohmann/json.hpp>
 #include <iostream>
 #include <cstring>
+#include <cstdlib>
 
 using json = nlohmann::json;
 
@@ -15,6 +19,10 @@ CNNGVoiceStream::CNNGVoiceStream(char module, CReflector* reflector)
     , m_Encoder(nullptr)
     , m_Decoder(nullptr)
     , m_Running(false)
+    , m_VirtualClient(nullptr)
+    , m_ActiveStream(nullptr)
+    , m_StreamId(0)
+    , m_PacketCounter(0)
 {
     m_Socket.id = 0;
 }
@@ -26,6 +34,17 @@ CNNGVoiceStream::~CNNGVoiceStream()
 
 void CNNGVoiceStream::Cleanup()
 {
+    // Close active stream if any
+    if (m_ActiveStream && m_Reflector) {
+        m_Reflector->CloseStream(m_ActiveStream);
+        m_ActiveStream = nullptr;
+    }
+    
+    // Destroy virtual client
+    m_VirtualClient = nullptr;
+    m_StreamId = 0;
+    m_PacketCounter = 0;
+    
     if (m_Encoder) {
         opus_encoder_destroy(m_Encoder);
         m_Encoder = nullptr;
@@ -252,9 +271,41 @@ void CNNGVoiceStream::HandlePTTStart(const std::string& module, const std::strin
         return;
     }
     
+    // Create virtual client for this web transmission
+    if (!CreateVirtualClient(callsign)) {
+        std::cerr << "NNGVoiceStream[" << m_Module << "]: Failed to create virtual client for " 
+                  << callsign << std::endl;
+        return;
+    }
+    
+    // Generate stream ID and create header packet
+    m_StreamId = GenerateStreamId();
+    m_PacketCounter = 0;
+    
+    // Create DV header packet
+    CCallsign my(callsign);
+    CCallsign ur("CQCQCQ");  // Standard "calling CQ" destination
+    CCallsign rpt1(m_Reflector->GetCallsign());
+    rpt1.SetCSModule(m_Module);
+    CCallsign rpt2(m_Reflector->GetCallsign());
+    rpt2.SetCSModule(m_Module);
+    
+    auto header = std::make_unique<CDvHeaderPacket>(my, ur, rpt1, rpt2, m_StreamId, static_cast<uint8_t>(0));
+    header->SetPacketModule(m_Module);
+    
+    // Open stream through reflector
+    m_ActiveStream = m_Reflector->OpenStream(header, m_VirtualClient);
+    
+    if (!m_ActiveStream) {
+        std::cerr << "NNGVoiceStream[" << m_Module << "]: Failed to open stream for " 
+                  << callsign << std::endl;
+        DestroyVirtualClient();
+        return;
+    }
+    
     m_ActiveCallsign = callsign;
     std::cout << "NNGVoiceStream[" << m_Module << "]: [WEB] " << callsign 
-              << " started transmitting" << std::endl;
+              << " started transmitting (stream " << m_StreamId << ")" << std::endl;
 }
 
 void CNNGVoiceStream::HandlePTTStop(const std::string& module, const std::string& callsign)
@@ -266,9 +317,12 @@ void CNNGVoiceStream::HandlePTTStop(const std::string& module, const std::string
         return;
     }
     
-    m_ActiveCallsign.clear();
     std::cout << "NNGVoiceStream[" << m_Module << "]: [WEB] " << callsign 
-              << " stopped transmitting" << std::endl;
+              << " stopped transmitting (" << m_PacketCounter << " packets)" << std::endl;
+    
+    // Close stream and destroy virtual client
+    DestroyVirtualClient();
+    m_ActiveCallsign.clear();
 }
 
 void CNNGVoiceStream::HandleAudioData(const std::string& module, const std::string& callsign,
@@ -296,6 +350,69 @@ void CNNGVoiceStream::HandleAudioData(const std::string& module, const std::stri
         return;
     }
     
-    // TODO: Inject PCM audio into reflector via virtual USRP client
-    // This will be implemented in the next step when we create the virtual client
+    // Inject PCM audio into reflector via stream
+    if (m_ActiveStream) {
+        // Create USRP frame packet with PCM data
+        // The last parameter indicates if this is the last frame (we don't know yet, so false)
+        auto packet = std::make_unique<CDvFramePacket>(pcm, m_StreamId, false);
+        packet->SetPacketModule(m_Module);
+        
+        // Push packet to stream
+        m_ActiveStream->Push(std::move(packet));
+        
+        m_PacketCounter++;
+    }
+}
+
+// Stream injection helper methods
+bool CNNGVoiceStream::CreateVirtualClient(const std::string& callsign)
+{
+    if (!m_Reflector) {
+        std::cerr << "NNGVoiceStream[" << m_Module << "]: No reflector instance" << std::endl;
+        return false;
+    }
+    
+    // Create a virtual USRP client for web transmissions
+    // Use a dummy IP address (127.0.0.1) since this is a virtual client
+    CCallsign cs(callsign);
+    CIp ip;  // Default constructor creates a valid IP
+    m_VirtualClient = std::make_shared<CUSRPClient>(cs, ip, m_Module);
+    
+    if (!m_VirtualClient) {
+        std::cerr << "NNGVoiceStream[" << m_Module << "]: Failed to create virtual client" << std::endl;
+        return false;
+    }
+    
+    std::cout << "NNGVoiceStream[" << m_Module << "]: Created virtual client for " 
+              << callsign << std::endl;
+    return true;
+}
+
+void CNNGVoiceStream::DestroyVirtualClient()
+{
+    // Close active stream if any
+    if (m_ActiveStream && m_Reflector) {
+        // Send a final "last frame" packet to properly close the stream
+        if (m_StreamId != 0) {
+            int16_t silence[FRAME_SIZE] = {0};  // Silent frame
+            auto packet = std::make_unique<CDvFramePacket>(silence, m_StreamId, true);
+            packet->SetPacketModule(m_Module);
+            m_ActiveStream->Push(std::move(packet));
+        }
+        
+        m_Reflector->CloseStream(m_ActiveStream);
+        m_ActiveStream = nullptr;
+    }
+    
+    m_VirtualClient = nullptr;
+    m_StreamId = 0;
+    m_PacketCounter = 0;
+    
+    std::cout << "NNGVoiceStream[" << m_Module << "]: Destroyed virtual client" << std::endl;
+}
+
+uint16_t CNNGVoiceStream::GenerateStreamId()
+{
+    // Generate a random stream ID (same method used by other protocols)
+    return static_cast<uint16_t>(::rand());
 }

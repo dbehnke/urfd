@@ -7,12 +7,15 @@
 #include <atomic>
 #include <thread>
 #include <functional>
+#include <memory>
 #include <opus/opus.h>
 #include <nng/nng.h>
 #include <nng/protocol/pair0/pair.h>
 
 // Forward declarations
 class CReflector;
+class CClient;
+class CPacketStream;
 
 // NNG Voice Stream for live audio streaming to/from dashboard
 // TX Path: Taps transcoded 8kHz mono PCM audio and encodes to Opus for streaming
@@ -47,6 +50,11 @@ private:
     void HandlePTTStop(const std::string& module, const std::string& callsign);
     void HandleAudioData(const std::string& module, const std::string& callsign, 
                         const unsigned char* opusData, int opusLen);
+    
+    // Stream injection helpers
+    bool CreateVirtualClient(const std::string& callsign);
+    void DestroyVirtualClient();
+    uint16_t GenerateStreamId();
 
     char            m_Module;
     CReflector*     m_Reflector;
@@ -73,6 +81,12 @@ private:
     // Current active talker (RX enforcement)
     std::string     m_ActiveCallsign;
     std::mutex      m_ActiveMutex;
+    
+    // Virtual client for web transmissions
+    std::shared_ptr<CClient> m_VirtualClient;
+    std::shared_ptr<CPacketStream> m_ActiveStream;
+    uint16_t        m_StreamId;
+    uint8_t         m_PacketCounter;
 
     // Opus settings
     static constexpr int SAMPLE_RATE = 8000;
