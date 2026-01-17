@@ -107,7 +107,7 @@ bool CReflector::Start(void)
 				// Initialize voice stream if enabled
 				if (g_Configure.GetBoolean(g_Keys.voice.enable))
 				{
-					auto voicestream = std::make_shared<CNNGVoiceStream>(c);
+					auto voicestream = std::make_shared<CNNGVoiceStream>(c, this);
 					if (voicestream)
 					{
 						std::string addr = g_Configure.GetString(g_Keys.voice.nngaddr);
