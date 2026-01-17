@@ -26,6 +26,7 @@
 #include "Protocols.h"
 #include "PacketStream.h"
 #include "NNGControl.h"
+#include "NNGVoiceStream.h"
 
 #ifndef NO_DHT
 #include "dht-values.h"
@@ -75,6 +76,9 @@ public:
 	// check
 	bool IsValidModule(char c) const                { return m_Modules.npos!=m_Modules.find(c); }
 
+	// voice stream access
+	std::shared_ptr<CNNGVoiceStream> GetVoiceStream(char module);
+
 	// notifications
 
 #ifndef NO_DHT
@@ -114,6 +118,9 @@ protected:
 
 	// queues
 	std::unordered_map<char, std::shared_ptr<CPacketStream>> m_Stream;
+	
+	// voice streams (one per transcoded module)
+	std::unordered_map<char, std::shared_ptr<CNNGVoiceStream>> m_VoiceStream;
 
 	// threads
 	std::atomic<bool> keep_running;

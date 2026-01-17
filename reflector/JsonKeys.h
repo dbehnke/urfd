@@ -61,6 +61,9 @@ struct SJsonKeys {
 	struct AUDIO { const std::string enable, path; }
 	audio { "AudioEnable", "AudioPath" };
 
+	struct VOICE { const std::string enable, nngaddr; }
+	voice { "VoiceEnable", "VoiceNNGAddr" };
+
 	struct USRP { const std::string enable, ip, txport, rxport, module, callsign, filepath; }
 	usrp { "usrpEnable", "usrpIpAddress", "urspTxPort", "usrpRxPort", "usrpModule", "usrpCallsign", "usrpFilePath" };
 

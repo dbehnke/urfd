@@ -112,6 +112,7 @@ static inline void trim(std::string &s) {
 #define JXMLPATH                 "XmlPath"
 #define JYSFAUTOLINKMOD          "AutoLinkModule"
 #define JAUDIO                   "Audio"
+#define JVOICE                   "Voice"
 #define JYSF                     "YSF"
 #define JYSFTXRXDB               "YSF TX/RX DB"
 #define JDMR                     "DMR"
@@ -245,6 +246,8 @@ bool CConfigure::ReadData(const std::string &path)
 				section = ESection::files;
 			else if (0 == hname.compare(JAUDIO))
 				section = ESection::audio;
+			else if (0 == hname.compare(JVOICE))
+				section = ESection::voice;
 			else if (0 == hname.compare(JDMR))
 				section = ESection::dmr;
 			else
@@ -558,6 +561,14 @@ bool CConfigure::ReadData(const std::string &path)
 					data[g_Keys.audio.enable] = IS_TRUE(value[0]);
 				else if (0 == key.compare("Path") || 0 == key.compare("path"))
 					data[g_Keys.audio.path] = value;
+				else
+					badParam(key);
+				break;
+			case ESection::voice:
+				if (0 == key.compare(JENABLE))
+					data[g_Keys.voice.enable] = IS_TRUE(value[0]);
+				else if (0 == key.compare("NngAddr") || 0 == key.compare("nngaddr"))
+					data[g_Keys.voice.nngaddr] = value;
 				else
 					badParam(key);
 				break;

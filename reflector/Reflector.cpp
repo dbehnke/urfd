@@ -96,16 +96,44 @@ bool CReflector::Start(void)
 		auto stream = std::make_shared<CPacketStream>(c);
 		if (stream)
 		{
-			// if it's a transcoded module, then we need to initialize the codec stream
-			if (port)
+		// if it's a transcoded module, then we need to initialize the codec stream
+		if (port)
+		{
+			if (std::string::npos != tcmods.find(c) || g_Configure.GetBoolean(g_Keys.audio.enable))
 			{
-				if (std::string::npos != tcmods.find(c) || g_Configure.GetBoolean(g_Keys.audio.enable))
+				if (stream->InitCodecStream())
+					return true;
+					
+				// Initialize voice stream if enabled
+				if (g_Configure.GetBoolean(g_Keys.voice.enable))
 				{
-					if (stream->InitCodecStream())
-						return true;
+					auto voicestream = std::make_shared<CNNGVoiceStream>(c);
+					if (voicestream)
+					{
+						std::string addr = g_Configure.GetString(g_Keys.voice.nngaddr);
+						// Each module gets a unique port: base_port + module_offset
+						// For example: tcp://127.0.0.1:5556 becomes 5556, 5557, 5558, etc.
+						size_t port_pos = addr.rfind(':');
+						if (port_pos != std::string::npos)
+						{
+							int base_port = std::stoi(addr.substr(port_pos + 1));
+							int module_port = base_port + (c - 'A');
+							addr = addr.substr(0, port_pos + 1) + std::to_string(module_port);
+						}
+						
+						if (voicestream->Start(addr))
+						{
+							m_VoiceStream[c] = voicestream;
+						}
+						else
+						{
+							std::cerr << "Failed to start voice stream for module '" << c << "'" << std::endl;
+						}
+					}
 				}
 			}
-			m_Stream[c] = stream;
+		}
+		m_Stream[c] = stream;
 		}
 		else
 		{
@@ -207,6 +235,14 @@ void CReflector::Stop(void)
 #endif
 
 	m_NNGControl.Stop();
+	
+	// Stop all voice streams
+	for (auto& kv : m_VoiceStream)
+	{
+		if (kv.second)
+			kv.second->Stop();
+	}
+	m_VoiceStream.clear();
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////
@@ -731,3 +767,14 @@ void CReflector::GetDHTConfig(const std::string &cs)
 }
 
 #endif
+
+////////////////////////////////////////////////////////////////////////////////////////
+// voice stream access
+
+std::shared_ptr<CNNGVoiceStream> CReflector::GetVoiceStream(char module)
+{
+	auto it = m_VoiceStream.find(module);
+	if (it != m_VoiceStream.end())
+		return it->second;
+	return nullptr;
+}
