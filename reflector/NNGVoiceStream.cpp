@@ -60,6 +60,7 @@ void CNNGVoiceStream::Cleanup()
     m_IsStreaming = false;
     m_PcmBuffer.clear();
     m_ActiveCallsign.clear();
+    m_ActiveSource.clear();
 }
 
 bool CNNGVoiceStream::Start(const std::string &addr)
@@ -234,6 +235,7 @@ void CNNGVoiceStream::HandleMessage(const unsigned char* data, int len)
         std::string type = msg.value("type", "");
         std::string module = msg.value("module", "");
         std::string callsign = msg.value("callsign", "");
+        std::string source = msg.value("source", "");  // Extract source tag (e.g., "web")
         
         // Only handle messages for this module
         if (module.empty() || module[0] != m_Module) {
@@ -241,10 +243,10 @@ void CNNGVoiceStream::HandleMessage(const unsigned char* data, int len)
         }
         
         if (type == "ptt_start") {
-            HandlePTTStart(module, callsign);
+            HandlePTTStart(module, callsign, source);
         }
         else if (type == "ptt_stop") {
-            HandlePTTStop(module, callsign);
+            HandlePTTStop(module, callsign, source);
         }
         else if (type == "audio_data") {
             // Extract Opus data (stored as array of bytes in JSON)
@@ -260,7 +262,7 @@ void CNNGVoiceStream::HandleMessage(const unsigned char* data, int len)
     }
 }
 
-void CNNGVoiceStream::HandlePTTStart(const std::string& module, const std::string& callsign)
+void CNNGVoiceStream::HandlePTTStart(const std::string& module, const std::string& callsign, const std::string& source)
 {
     std::lock_guard<std::mutex> lock(m_ActiveMutex);
     
@@ -304,11 +306,15 @@ void CNNGVoiceStream::HandlePTTStart(const std::string& module, const std::strin
     }
     
     m_ActiveCallsign = callsign;
-    std::cout << "NNGVoiceStream[" << m_Module << "]: [WEB] " << callsign 
+    m_ActiveSource = source;
+    
+    // Log with source tag for easy identification
+    std::string sourceTag = source.empty() ? "" : "[" + source + "] ";
+    std::cout << "NNGVoiceStream[" << m_Module << "]: " << sourceTag << callsign 
               << " started transmitting (stream " << m_StreamId << ")" << std::endl;
 }
 
-void CNNGVoiceStream::HandlePTTStop(const std::string& module, const std::string& callsign)
+void CNNGVoiceStream::HandlePTTStop(const std::string& module, const std::string& callsign, const std::string& source)
 {
     std::lock_guard<std::mutex> lock(m_ActiveMutex);
     
@@ -317,12 +323,15 @@ void CNNGVoiceStream::HandlePTTStop(const std::string& module, const std::string
         return;
     }
     
-    std::cout << "NNGVoiceStream[" << m_Module << "]: [WEB] " << callsign 
+    // Log with source tag for easy identification
+    std::string sourceTag = m_ActiveSource.empty() ? "" : "[" + m_ActiveSource + "] ";
+    std::cout << "NNGVoiceStream[" << m_Module << "]: " << sourceTag << callsign 
               << " stopped transmitting (" << m_PacketCounter << " packets)" << std::endl;
     
     // Close stream and destroy virtual client
     DestroyVirtualClient();
     m_ActiveCallsign.clear();
+    m_ActiveSource.clear();
 }
 
 void CNNGVoiceStream::HandleAudioData(const std::string& module, const std::string& callsign,

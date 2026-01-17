@@ -46,8 +46,8 @@ private:
     // RX Path - receive thread
     void ReceiveThread();
     void HandleMessage(const unsigned char* data, int len);
-    void HandlePTTStart(const std::string& module, const std::string& callsign);
-    void HandlePTTStop(const std::string& module, const std::string& callsign);
+    void HandlePTTStart(const std::string& module, const std::string& callsign, const std::string& source);
+    void HandlePTTStop(const std::string& module, const std::string& callsign, const std::string& source);
     void HandleAudioData(const std::string& module, const std::string& callsign, 
                         const unsigned char* opusData, int opusLen);
     
@@ -80,6 +80,7 @@ private:
     
     // Current active talker (RX enforcement)
     std::string     m_ActiveCallsign;
+    std::string     m_ActiveSource;  // Source tag (e.g., "web")
     std::mutex      m_ActiveMutex;
     
     // Virtual client for web transmissions
