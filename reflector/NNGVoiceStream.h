@@ -8,6 +8,8 @@
 #include <thread>
 #include <functional>
 #include <memory>
+#include <map>
+#include <ctime>
 #include <opus/opus.h>
 #include <nng/nng.h>
 #include <nng/protocol/pair0/pair.h>
@@ -16,6 +18,19 @@
 class CReflector;
 class CClient;
 class CPacketStream;
+
+// Voice session structure - tracks virtual client lifecycle across PTT cycles
+struct VoiceSession {
+    std::shared_ptr<CClient> virtualClient;    // Virtual client instance (persistent)
+    std::shared_ptr<CPacketStream> activeStream; // Current active stream (only during PTT)
+    std::string callsign;                      // User's callsign
+    std::string source;                        // Source tag (e.g., "web")
+    std::string module;                        // Module letter (e.g., "A")
+    time_t createdAt;                          // Session creation time
+    bool hasActiveStream;                      // True during PTT, false when idle
+    uint16_t streamId;                         // Current stream ID (if hasActiveStream)
+    uint8_t packetCounter;                     // Packet counter for current stream
+};
 
 // NNG Voice Stream for live audio streaming to/from dashboard
 // TX Path: Taps transcoded 8kHz mono PCM audio and encodes to Opus for streaming
@@ -46,14 +61,23 @@ private:
     // RX Path - receive thread
     void ReceiveThread();
     void HandleMessage(const unsigned char* data, int len);
-    void HandlePTTStart(const std::string& module, const std::string& callsign, const std::string& source);
-    void HandlePTTStop(const std::string& module, const std::string& callsign, const std::string& source);
+    
+    // Session lifecycle handlers (NEW - Phase 2)
+    void HandleVoiceSessionStart(const std::string& module, const std::string& callsign, const std::string& source);
+    void HandleVoiceSessionStop(const std::string& callsign);
+    
+    // PTT handlers (UPDATED - use session map)
+    void HandlePTTStart(const std::string& callsign);
+    void HandlePTTStop(const std::string& callsign);
     void HandleAudioData(const std::string& module, const std::string& callsign, 
                         const unsigned char* opusData, int opusLen);
     
-    // Stream injection helpers
+    // Session management helpers (NEW - Phase 2)
     bool CreateVirtualClient(const std::string& callsign);
-    void DestroyVirtualClient();
+    void DestroyVirtualClient(const std::string& callsign);
+    bool ModuleHasActiveStream(const std::string& excludeCallsign) const;
+    
+    // OLD: Kept for backward compatibility during migration
     uint16_t GenerateStreamId();
 
     char            m_Module;
@@ -78,16 +102,9 @@ private:
     std::thread     m_ReceiveThread;
     std::atomic<bool> m_Running;
     
-    // Current active talker (RX enforcement)
-    std::string     m_ActiveCallsign;
-    std::string     m_ActiveSource;  // Source tag (e.g., "web")
-    std::mutex      m_ActiveMutex;
-    
-    // Virtual client for web transmissions
-    std::shared_ptr<CClient> m_VirtualClient;
-    std::shared_ptr<CPacketStream> m_ActiveStream;
-    uint16_t        m_StreamId;
-    uint8_t         m_PacketCounter;
+    // Session management (NEW - Phase 2)
+    std::map<std::string, VoiceSession> m_Sessions;  // key: callsign
+    std::mutex      m_SessionMutex;
 
     // Opus settings
     static constexpr int SAMPLE_RATE = 8000;

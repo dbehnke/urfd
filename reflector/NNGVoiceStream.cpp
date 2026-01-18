@@ -19,10 +19,6 @@ CNNGVoiceStream::CNNGVoiceStream(char module, CReflector* reflector)
     , m_Encoder(nullptr)
     , m_Decoder(nullptr)
     , m_Running(false)
-    , m_VirtualClient(nullptr)
-    , m_ActiveStream(nullptr)
-    , m_StreamId(0)
-    , m_PacketCounter(0)
 {
     m_Socket.id = 0;
 }
@@ -34,16 +30,29 @@ CNNGVoiceStream::~CNNGVoiceStream()
 
 void CNNGVoiceStream::Cleanup()
 {
-    // Close active stream if any
-    if (m_ActiveStream && m_Reflector) {
-        m_Reflector->CloseStream(m_ActiveStream);
-        m_ActiveStream = nullptr;
+    // Close all active sessions
+    std::lock_guard<std::mutex> lock(m_SessionMutex);
+    
+    // Close active streams and remove virtual clients
+    for (auto& pair : m_Sessions) {
+        VoiceSession& session = pair.second;
+        
+        // Close stream if active
+        if (session.activeStream && m_Reflector) {
+            m_Reflector->CloseStream(session.activeStream);
+            session.activeStream = nullptr;
+        }
+        
+        // Remove virtual client from reflector
+        if (session.virtualClient && m_Reflector) {
+            auto clients = m_Reflector->GetClients();
+            clients->RemoveClient(session.virtualClient);
+            m_Reflector->ReleaseClients();
+        }
     }
     
-    // Destroy virtual client
-    m_VirtualClient = nullptr;
-    m_StreamId = 0;
-    m_PacketCounter = 0;
+    // Clear sessions map
+    m_Sessions.clear();
     
     if (m_Encoder) {
         opus_encoder_destroy(m_Encoder);
@@ -59,8 +68,6 @@ void CNNGVoiceStream::Cleanup()
     }
     m_IsStreaming = false;
     m_PcmBuffer.clear();
-    m_ActiveCallsign.clear();
-    m_ActiveSource.clear();
 }
 
 bool CNNGVoiceStream::Start(const std::string &addr)
@@ -237,16 +244,24 @@ void CNNGVoiceStream::HandleMessage(const unsigned char* data, int len)
         std::string callsign = msg.value("callsign", "");
         std::string source = msg.value("source", "");  // Extract source tag (e.g., "web")
         
-        // Only handle messages for this module
-        if (module.empty() || module[0] != m_Module) {
+        // Only handle messages for this module (except session_stop which doesn't have module)
+        if (!module.empty() && module[0] != m_Module) {
             return;
         }
         
-        if (type == "ptt_start") {
-            HandlePTTStart(module, callsign, source);
+        // NEW: Session lifecycle messages (Phase 2)
+        if (type == "voice_session_start") {
+            HandleVoiceSessionStart(module, callsign, source);
+        }
+        else if (type == "voice_session_stop") {
+            HandleVoiceSessionStop(callsign);
+        }
+        // UPDATED: PTT messages now use session map
+        else if (type == "ptt_start") {
+            HandlePTTStart(callsign);
         }
         else if (type == "ptt_stop") {
-            HandlePTTStop(module, callsign, source);
+            HandlePTTStop(callsign);
         }
         else if (type == "audio_data") {
             // Extract Opus data (can be either array or base64 string)
@@ -273,27 +288,102 @@ void CNNGVoiceStream::HandleMessage(const unsigned char* data, int len)
     }
 }
 
-void CNNGVoiceStream::HandlePTTStart(const std::string& module, const std::string& callsign, const std::string& source)
+// NEW - Phase 2: Session lifecycle management
+void CNNGVoiceStream::HandleVoiceSessionStart(const std::string& module, const std::string& callsign, const std::string& source)
 {
-    std::lock_guard<std::mutex> lock(m_ActiveMutex);
+    std::lock_guard<std::mutex> lock(m_SessionMutex);
     
-    if (!m_ActiveCallsign.empty()) {
-        std::cout << "NNGVoiceStream[" << m_Module << "]: PTT denied for " << callsign 
-                  << " (active: " << m_ActiveCallsign << ")" << std::endl;
-        // TODO: Send ptt_denied message back
+    // Check if session already exists
+    auto it = m_Sessions.find(callsign);
+    if (it != m_Sessions.end()) {
+        std::cout << "NNGVoiceStream[" << m_Module << "]: Voice session already exists for " 
+                  << callsign << std::endl;
         return;
     }
     
-    // Create virtual client for this web transmission
+    // Create virtual USRP client for this callsign
     if (!CreateVirtualClient(callsign)) {
         std::cerr << "NNGVoiceStream[" << m_Module << "]: Failed to create virtual client for " 
                   << callsign << std::endl;
         return;
     }
     
+    // Create and store session
+    VoiceSession session;
+    session.virtualClient = m_Sessions[callsign].virtualClient;  // Get the client we just created
+    session.activeStream = nullptr;
+    session.callsign = callsign;
+    session.source = source;
+    session.module = module;
+    session.createdAt = time(nullptr);
+    session.hasActiveStream = false;
+    session.streamId = 0;
+    session.packetCounter = 0;
+    
+    m_Sessions[callsign] = session;
+    
+    // Log with source tag for easy identification
+    std::string sourceTag = source.empty() ? "" : "[" + source + "] ";
+    std::cout << "NNGVoiceStream[" << m_Module << "]: " << sourceTag 
+              << "Voice session started: " << callsign << " on module " << module << std::endl;
+}
+
+void CNNGVoiceStream::HandleVoiceSessionStop(const std::string& callsign)
+{
+    std::lock_guard<std::mutex> lock(m_SessionMutex);
+    
+    auto it = m_Sessions.find(callsign);
+    if (it == m_Sessions.end()) {
+        std::cout << "NNGVoiceStream[" << m_Module << "]: Voice session not found for " 
+                  << callsign << std::endl;
+        return;
+    }
+    
+    VoiceSession& session = it->second;
+    
+    // Close active stream if any
+    if (session.hasActiveStream && session.activeStream && m_Reflector) {
+        m_Reflector->CloseStream(session.activeStream);
+        session.activeStream = nullptr;
+    }
+    
+    // Remove virtual client from reflector
+    DestroyVirtualClient(callsign);
+    
+    // Remove from sessions map
+    std::string sourceTag = session.source.empty() ? "" : "[" + session.source + "] ";
+    std::cout << "NNGVoiceStream[" << m_Module << "]: " << sourceTag 
+              << "Voice session stopped: " << callsign << std::endl;
+    
+    m_Sessions.erase(it);
+}
+
+void CNNGVoiceStream::HandlePTTStart(const std::string& callsign)
+{
+    std::lock_guard<std::mutex> lock(m_SessionMutex);
+    
+    // Get virtual client from sessions (DON'T create new one!)
+    auto it = m_Sessions.find(callsign);
+    if (it == m_Sessions.end()) {
+        std::cerr << "NNGVoiceStream[" << m_Module << "]: PTT start rejected: No voice session for " 
+                  << callsign << std::endl;
+        // TODO: Send error back to dashboard
+        return;
+    }
+    
+    VoiceSession& session = it->second;
+    
+    // Half-duplex defense: Check if module already has active stream
+    if (ModuleHasActiveStream(callsign)) {
+        std::cout << "NNGVoiceStream[" << m_Module << "]: PTT start rejected: Module " 
+                  << m_Module << " busy (active: another user)" << std::endl;
+        // TODO: Send error back to dashboard
+        return;
+    }
+    
     // Generate stream ID and create header packet
-    m_StreamId = GenerateStreamId();
-    m_PacketCounter = 0;
+    session.streamId = GenerateStreamId();
+    session.packetCounter = 0;
     
     // Create DV header packet
     CCallsign my(callsign);
@@ -303,55 +393,87 @@ void CNNGVoiceStream::HandlePTTStart(const std::string& module, const std::strin
     CCallsign rpt2(m_Reflector->GetCallsign());
     rpt2.SetCSModule(m_Module);
     
-    auto header = std::make_unique<CDvHeaderPacket>(my, ur, rpt1, rpt2, m_StreamId, static_cast<uint8_t>(0));
+    auto header = std::make_unique<CDvHeaderPacket>(my, ur, rpt1, rpt2, session.streamId, static_cast<uint8_t>(0));
     header->SetPacketModule(m_Module);
     
     // Open stream through reflector
-    m_ActiveStream = m_Reflector->OpenStream(header, m_VirtualClient);
+    session.activeStream = m_Reflector->OpenStream(header, session.virtualClient);
     
-    if (!m_ActiveStream) {
+    if (!session.activeStream) {
         std::cerr << "NNGVoiceStream[" << m_Module << "]: Failed to open stream for " 
                   << callsign << std::endl;
-        DestroyVirtualClient();
         return;
     }
     
-    m_ActiveCallsign = callsign;
-    m_ActiveSource = source;
+    session.hasActiveStream = true;
     
     // Log with source tag for easy identification
-    std::string sourceTag = source.empty() ? "" : "[" + source + "] ";
+    std::string sourceTag = session.source.empty() ? "" : "[" + session.source + "] ";
     std::cout << "NNGVoiceStream[" << m_Module << "]: " << sourceTag << callsign 
-              << " started transmitting (stream " << m_StreamId << ")" << std::endl;
+              << " PTT started (stream " << session.streamId << ")" << std::endl;
 }
 
-void CNNGVoiceStream::HandlePTTStop(const std::string& module, const std::string& callsign, const std::string& source)
+void CNNGVoiceStream::HandlePTTStop(const std::string& callsign)
 {
-    std::lock_guard<std::mutex> lock(m_ActiveMutex);
+    std::lock_guard<std::mutex> lock(m_SessionMutex);
     
-    if (m_ActiveCallsign != callsign) {
-        // Not the active caller, ignore
+    auto it = m_Sessions.find(callsign);
+    if (it == m_Sessions.end()) {
+        std::cout << "NNGVoiceStream[" << m_Module << "]: PTT stop ignored: No voice session for " 
+                  << callsign << std::endl;
         return;
     }
     
-    // Log with source tag for easy identification
-    std::string sourceTag = m_ActiveSource.empty() ? "" : "[" + m_ActiveSource + "] ";
-    std::cout << "NNGVoiceStream[" << m_Module << "]: " << sourceTag << callsign 
-              << " stopped transmitting (" << static_cast<int>(m_PacketCounter) << " packets)" << std::endl;
+    VoiceSession& session = it->second;
     
-    // Close stream and destroy virtual client
-    DestroyVirtualClient();
-    m_ActiveCallsign.clear();
-    m_ActiveSource.clear();
+    if (!session.hasActiveStream) {
+        // No active stream, nothing to do
+        return;
+    }
+    
+    // Close reflector stream
+    if (session.activeStream && m_Reflector) {
+        // Send a final "last frame" packet to properly close the stream
+        if (session.streamId != 0) {
+            int16_t silence[FRAME_SIZE] = {0};  // Silent frame
+            auto packet = std::make_unique<CDvFramePacket>(silence, session.streamId, true);
+            packet->SetPacketModule(m_Module);
+            session.activeStream->Push(std::move(packet));
+        }
+        
+        m_Reflector->CloseStream(session.activeStream);
+        session.activeStream = nullptr;
+    }
+    
+    session.hasActiveStream = false;
+    
+    // DON'T destroy virtual client - keep it for next PTT cycle!
+    
+    // Log with source tag for easy identification
+    std::string sourceTag = session.source.empty() ? "" : "[" + session.source + "] ";
+    std::cout << "NNGVoiceStream[" << m_Module << "]: " << sourceTag << callsign 
+              << " PTT stopped (" << static_cast<int>(session.packetCounter) << " packets)" << std::endl;
+    
+    // Reset packet counter for next transmission
+    session.packetCounter = 0;
 }
 
 void CNNGVoiceStream::HandleAudioData(const std::string& module, const std::string& callsign,
                                       const unsigned char* opusData, int opusLen)
 {
-    std::lock_guard<std::mutex> lock(m_ActiveMutex);
+    std::lock_guard<std::mutex> lock(m_SessionMutex);
     
-    // Only process audio from the active caller
-    if (m_ActiveCallsign != callsign) {
+    // Get session for this callsign
+    auto it = m_Sessions.find(callsign);
+    if (it == m_Sessions.end()) {
+        // No session for this callsign, ignore audio
+        return;
+    }
+    
+    VoiceSession& session = it->second;
+    
+    // Only process audio if this session has an active stream
+    if (!session.hasActiveStream || !session.activeStream) {
         return;
     }
     
@@ -361,7 +483,8 @@ void CNNGVoiceStream::HandleAudioData(const std::string& module, const std::stri
     }
     
     // Debug: log packet size
-    std::cout << "NNGVoiceStream[" << m_Module << "]: Received Opus packet, size: " << opusLen << " bytes" << std::endl;
+    std::cout << "NNGVoiceStream[" << m_Module << "]: Received Opus packet from " << callsign 
+              << ", size: " << opusLen << " bytes" << std::endl;
     
     // Decode Opus to PCM
     int16_t pcm[FRAME_SIZE];
@@ -374,17 +497,15 @@ void CNNGVoiceStream::HandleAudioData(const std::string& module, const std::stri
     }
     
     // Inject PCM audio into reflector via stream
-    if (m_ActiveStream) {
-        // Create USRP frame packet with PCM data
-        // The last parameter indicates if this is the last frame (we don't know yet, so false)
-        auto packet = std::make_unique<CDvFramePacket>(pcm, m_StreamId, false);
-        packet->SetPacketModule(m_Module);
-        
-        // Push packet to stream
-        m_ActiveStream->Push(std::move(packet));
-        
-        m_PacketCounter++;
-    }
+    // Create USRP frame packet with PCM data
+    // The last parameter indicates if this is the last frame (we don't know yet, so false)
+    auto packet = std::make_unique<CDvFramePacket>(pcm, session.streamId, false);
+    packet->SetPacketModule(m_Module);
+    
+    // Push packet to stream
+    session.activeStream->Push(std::move(packet));
+    
+    session.packetCounter++;
 }
 
 // Stream injection helper methods
@@ -399,9 +520,9 @@ bool CNNGVoiceStream::CreateVirtualClient(const std::string& callsign)
     // Use a dummy IP address (127.0.0.1) since this is a virtual client
     CCallsign cs(callsign);
     CIp ip;  // Default constructor creates a valid IP
-    m_VirtualClient = std::make_shared<CUSRPClient>(cs, ip, m_Module);
+    auto virtualClient = std::make_shared<CUSRPClient>(cs, ip, m_Module);
     
-    if (!m_VirtualClient) {
+    if (!virtualClient) {
         std::cerr << "NNGVoiceStream[" << m_Module << "]: Failed to create virtual client" << std::endl;
         return false;
     }
@@ -409,42 +530,58 @@ bool CNNGVoiceStream::CreateVirtualClient(const std::string& callsign)
     // CRITICAL: Add virtual client to reflector's client list
     // OpenStream requires the client to be in the list (checks IsClient)
     auto clients = m_Reflector->GetClients();
-    clients->AddClient(m_VirtualClient);
+    clients->AddClient(virtualClient);
     m_Reflector->ReleaseClients();
+    
+    // Store in the session (caller will do this)
+    m_Sessions[callsign].virtualClient = virtualClient;
     
     std::cout << "NNGVoiceStream[" << m_Module << "]: Created virtual client for " 
               << callsign << std::endl;
     return true;
 }
 
-void CNNGVoiceStream::DestroyVirtualClient()
+void CNNGVoiceStream::DestroyVirtualClient(const std::string& callsign)
 {
-    // Close active stream if any
-    if (m_ActiveStream && m_Reflector) {
-        // Send a final "last frame" packet to properly close the stream
-        if (m_StreamId != 0) {
-            int16_t silence[FRAME_SIZE] = {0};  // Silent frame
-            auto packet = std::make_unique<CDvFramePacket>(silence, m_StreamId, true);
-            packet->SetPacketModule(m_Module);
-            m_ActiveStream->Push(std::move(packet));
-        }
-        
-        m_Reflector->CloseStream(m_ActiveStream);
-        m_ActiveStream = nullptr;
+    auto it = m_Sessions.find(callsign);
+    if (it == m_Sessions.end()) {
+        return;
     }
     
+    VoiceSession& session = it->second;
+    
     // Remove virtual client from reflector's client list
-    if (m_VirtualClient && m_Reflector) {
+    if (session.virtualClient && m_Reflector) {
         auto clients = m_Reflector->GetClients();
-        clients->RemoveClient(m_VirtualClient);
+        clients->RemoveClient(session.virtualClient);
         m_Reflector->ReleaseClients();
     }
     
-    m_VirtualClient = nullptr;
-    m_StreamId = 0;
-    m_PacketCounter = 0;
+    session.virtualClient = nullptr;
     
-    std::cout << "NNGVoiceStream[" << m_Module << "]: Destroyed virtual client" << std::endl;
+    std::cout << "NNGVoiceStream[" << m_Module << "]: Destroyed virtual client for " 
+              << callsign << std::endl;
+}
+
+// Helper: Check if any other session on this module has an active stream
+bool CNNGVoiceStream::ModuleHasActiveStream(const std::string& excludeCallsign) const
+{
+    // Note: Caller should already hold m_SessionMutex lock
+    for (const auto& pair : m_Sessions) {
+        const VoiceSession& session = pair.second;
+        
+        // Skip the callsign we're checking for (allow same user to restart)
+        if (session.callsign == excludeCallsign) {
+            continue;
+        }
+        
+        // Check if this session has an active stream
+        if (session.hasActiveStream) {
+            return true;
+        }
+    }
+    
+    return false;
 }
 
 uint16_t CNNGVoiceStream::GenerateStreamId()
