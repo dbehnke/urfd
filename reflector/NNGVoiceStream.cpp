@@ -249,10 +249,21 @@ void CNNGVoiceStream::HandleMessage(const unsigned char* data, int len)
             HandlePTTStop(module, callsign, source);
         }
         else if (type == "audio_data") {
-            // Extract Opus data (stored as array of bytes in JSON)
-            if (msg.contains("opus") && msg["opus"].is_array()) {
-                std::vector<unsigned char> opusData = msg["opus"];
-                HandleAudioData(module, callsign, opusData.data(), opusData.size());
+            // Extract Opus data (can be either array or base64 string)
+            if (msg.contains("opus")) {
+                if (msg["opus"].is_array()) {
+                    // Direct array format
+                    std::vector<unsigned char> opusData = msg["opus"].get<std::vector<unsigned char>>();
+                    if (!opusData.empty()) {
+                        HandleAudioData(module, callsign, opusData.data(), opusData.size());
+                    }
+                } else if (msg["opus"].is_string()) {
+                    // Base64 string format (from Go JSON marshaling)
+                    // For now, just log - we'll handle base64 if needed
+                    std::cerr << "NNGVoiceStream[" << m_Module << "]: WARNING: Received base64 opus data, not array" << std::endl;
+                }
+            } else {
+                std::cerr << "NNGVoiceStream[" << m_Module << "]: audio_data message missing opus field" << std::endl;
             }
         }
     }
@@ -326,7 +337,7 @@ void CNNGVoiceStream::HandlePTTStop(const std::string& module, const std::string
     // Log with source tag for easy identification
     std::string sourceTag = m_ActiveSource.empty() ? "" : "[" + m_ActiveSource + "] ";
     std::cout << "NNGVoiceStream[" << m_Module << "]: " << sourceTag << callsign 
-              << " stopped transmitting (" << m_PacketCounter << " packets)" << std::endl;
+              << " stopped transmitting (" << static_cast<int>(m_PacketCounter) << " packets)" << std::endl;
     
     // Close stream and destroy virtual client
     DestroyVirtualClient();
@@ -348,6 +359,9 @@ void CNNGVoiceStream::HandleAudioData(const std::string& module, const std::stri
         std::cerr << "NNGVoiceStream[" << m_Module << "]: No decoder available" << std::endl;
         return;
     }
+    
+    // Debug: log packet size
+    std::cout << "NNGVoiceStream[" << m_Module << "]: Received Opus packet, size: " << opusLen << " bytes" << std::endl;
     
     // Decode Opus to PCM
     int16_t pcm[FRAME_SIZE];
@@ -392,6 +406,12 @@ bool CNNGVoiceStream::CreateVirtualClient(const std::string& callsign)
         return false;
     }
     
+    // CRITICAL: Add virtual client to reflector's client list
+    // OpenStream requires the client to be in the list (checks IsClient)
+    auto clients = m_Reflector->GetClients();
+    clients->AddClient(m_VirtualClient);
+    m_Reflector->ReleaseClients();
+    
     std::cout << "NNGVoiceStream[" << m_Module << "]: Created virtual client for " 
               << callsign << std::endl;
     return true;
@@ -411,6 +431,13 @@ void CNNGVoiceStream::DestroyVirtualClient()
         
         m_Reflector->CloseStream(m_ActiveStream);
         m_ActiveStream = nullptr;
+    }
+    
+    // Remove virtual client from reflector's client list
+    if (m_VirtualClient && m_Reflector) {
+        auto clients = m_Reflector->GetClients();
+        clients->RemoveClient(m_VirtualClient);
+        m_Reflector->ReleaseClients();
     }
     
     m_VirtualClient = nullptr;

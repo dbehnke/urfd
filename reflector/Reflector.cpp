@@ -600,6 +600,22 @@ void CReflector::JsonReport(nlohmann::json &report)
 			report["ActiveTalkers"].push_back(jactive);
 		}
 	}
+
+	// Build Modules array from configuration
+	report["Modules"] = nlohmann::json::array();
+	std::string modulesStr = g_Configure.GetString(g_Keys.modules.modules);
+	for (char c : modulesStr)
+	{
+		if (std::isupper(c) && c >= 'A' && c <= 'Z')
+		{
+			nlohmann::json jmodule;
+			jmodule["Name"] = std::string(1, c);
+			// Get description for this module
+			int idx = c - 'A';
+			jmodule["Description"] = g_Configure.GetString(g_Keys.modules.descriptor[idx]);
+			report["Modules"].push_back(jmodule);
+		}
+	}
 }
 
 void CReflector::WriteXmlFile(std::ofstream &xmlFile)
