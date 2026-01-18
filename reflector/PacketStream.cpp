@@ -51,6 +51,7 @@ bool CPacketStream::OpenPacketStream(const CDvHeaderPacket &DvHeader, std::share
 	// not already open?
 	if ( !m_bOpen )
 	{
+		std::cout << "PacketStream[" << m_PSModule << "]: OpenPacketStream - Opening stream (m_bOpen was false)" << std::endl;
 		// update status
 		m_bOpen = true;
 		m_uiStreamId = DvHeader.GetStreamId();
@@ -59,14 +60,19 @@ bool CPacketStream::OpenPacketStream(const CDvHeaderPacket &DvHeader, std::share
 		m_OwnerClient = client;
 		m_LastPacketTime.start();
 		if (m_CodecStream)
+		{
+			std::cout << "PacketStream[" << m_PSModule << "]: Calling ResetStats to start recording" << std::endl;
 			m_CodecStream->ResetStats(m_uiStreamId, m_DvHeader.GetCodecIn());
+		}
 		return true;
 	}
+	std::cout << "PacketStream[" << m_PSModule << "]: OpenPacketStream - FAILED! Stream already open (m_bOpen was true)" << std::endl;
 	return false;
 }
 
 void CPacketStream::ClosePacketStream(void)
 {
+	std::cout << "PacketStream[" << m_PSModule << "]: ClosePacketStream - Closing stream (setting m_bOpen = false)" << std::endl;
 	// update status
 	m_bOpen = false;
 	m_uiStreamId = 0;
