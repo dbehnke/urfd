@@ -13,6 +13,7 @@
 #include <opus/opus.h>
 #include <nng/nng.h>
 #include <nng/protocol/pair0/pair.h>
+#include <nng/protocol/reqrep0/rep.h>
 
 // Forward declarations
 class CReflector;
@@ -25,6 +26,7 @@ struct VoiceSession {
     std::shared_ptr<CPacketStream> activeStream; // Current active stream (only during PTT)
     std::string callsign;                      // User's callsign
     std::string source;                        // Source tag (e.g., "web")
+    std::string sessionId;                     // Client session ID (from dashboard)
     std::string module;                        // Module letter (e.g., "A")
     time_t createdAt;                          // Session creation time
     bool hasActiveStream;                      // True during PTT, false when idle
@@ -43,6 +45,7 @@ public:
 
     // Start/Stop NNG voice endpoint
     bool Start(const std::string &addr);
+    bool StartControlSocket(const std::string &addr);  // NEW: Start REP socket for control messages
     void Stop();
 
     // Write PCM audio samples (8kHz mono, int16_t) - TX Path
@@ -51,6 +54,15 @@ public:
 
     // Check if streaming is active
     bool IsStreaming() const { return m_IsStreaming; }
+    
+    // Check if a client is a web client (to prevent echo)
+    bool IsWebClient(std::shared_ptr<CClient> client) const;
+    
+    // Send recording complete notification
+    void SendRecordingComplete(const std::string& callsign, const std::string& audioFile, const std::string& sessionId);
+    
+    // Notify about recording complete for a client (called by Reflector after stream closes)
+    void NotifyRecordingComplete(const std::string& callsign, const std::string& recording, const std::string& source, const std::string& sessionId);
 
 private:
     void InitOpusEncoder();
@@ -62,8 +74,13 @@ private:
     void ReceiveThread();
     void HandleMessage(const unsigned char* data, int len);
     
+    // Control socket - receive thread (NEW)
+    void ControlThread();
+    void HandleControlMessage(const unsigned char* data, int len);
+    void SendControlResponse(const std::string& jsonResponse);
+    
     // Session lifecycle handlers (NEW - Phase 2)
-    void HandleVoiceSessionStart(const std::string& module, const std::string& callsign, const std::string& source);
+    void HandleVoiceSessionStart(const std::string& module, const std::string& callsign, const std::string& source, const std::string& sessionId);
     void HandleVoiceSessionStop(const std::string& callsign);
     
     // PTT handlers (UPDATED - use session map)
@@ -76,6 +93,7 @@ private:
     bool CreateVirtualClient(const std::string& callsign);
     void DestroyVirtualClient(const std::string& callsign);
     bool ModuleHasActiveStream(const std::string& excludeCallsign) const;
+    std::string GetActiveStreamUser(const std::string& excludeCallsign) const;
     
     // OLD: Kept for backward compatibility during migration
     uint16_t GenerateStreamId();
@@ -85,9 +103,15 @@ private:
     bool            m_IsStreaming;
     std::mutex      m_Mutex;
 
-    // NNG socket for PAIR protocol
+    // NNG socket for PAIR protocol (audio data)
     nng_socket      m_Socket;
     bool            m_SocketOpen;
+    
+    // NNG socket for REP protocol (control messages) - NEW
+    nng_socket      m_ControlSocket;
+    bool            m_ControlSocketOpen;
+    std::thread     m_ControlThread;
+    nng_aio*        m_ControlAio;  // For async reply
 
     // Opus encoder state (TX Path)
     OpusEncoder*    m_Encoder;

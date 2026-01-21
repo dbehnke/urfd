@@ -16,11 +16,14 @@ CNNGVoiceStream::CNNGVoiceStream(char module, CReflector* reflector)
     , m_Reflector(reflector)
     , m_IsStreaming(false)
     , m_SocketOpen(false)
+    , m_ControlSocketOpen(false)  // NEW
+    , m_ControlAio(nullptr)       // NEW
     , m_Encoder(nullptr)
     , m_Decoder(nullptr)
     , m_Running(false)
 {
     m_Socket.id = 0;
+    m_ControlSocket.id = 0;  // NEW
 }
 
 CNNGVoiceStream::~CNNGVoiceStream()
@@ -65,6 +68,15 @@ void CNNGVoiceStream::Cleanup()
     if (m_SocketOpen) {
         nng_close(m_Socket);
         m_SocketOpen = false;
+    }
+    // NEW: Close control socket
+    if (m_ControlSocketOpen) {
+        nng_close(m_ControlSocket);
+        m_ControlSocketOpen = false;
+    }
+    if (m_ControlAio) {
+        nng_aio_free(m_ControlAio);
+        m_ControlAio = nullptr;
     }
     m_IsStreaming = false;
     m_PcmBuffer.clear();
@@ -130,9 +142,40 @@ void CNNGVoiceStream::Stop()
         m_ReceiveThread.join();
     }
     
+    // Wait for control thread to finish (NEW)
+    if (m_ControlThread.joinable()) {
+        m_ControlThread.join();
+    }
+    
     std::lock_guard<std::mutex> lock(m_Mutex);
     Cleanup();
     std::cout << "NNGVoiceStream[" << m_Module << "]: Stopped" << std::endl;
+}
+
+bool CNNGVoiceStream::StartControlSocket(const std::string &addr)
+{
+    // Initialize NNG REP socket for control messages
+    int rv;
+    if ((rv = nng_rep0_open(&m_ControlSocket)) != 0) {
+        std::cerr << "NNGVoiceStream[" << m_Module << "]: Failed to open REP socket: " 
+                  << nng_strerror(rv) << std::endl;
+        return false;
+    }
+    m_ControlSocketOpen = true;
+
+    if ((rv = nng_listen(m_ControlSocket, addr.c_str(), nullptr, 0)) != 0) {
+        std::cerr << "NNGVoiceStream[" << m_Module << "]: Failed to listen on control socket " << addr 
+                  << ": " << nng_strerror(rv) << std::endl;
+        nng_close(m_ControlSocket);
+        m_ControlSocketOpen = false;
+        return false;
+    }
+
+    // Start control thread
+    m_ControlThread = std::thread(&CNNGVoiceStream::ControlThread, this);
+
+    std::cout << "NNGVoiceStream[" << m_Module << "]: Control socket started at " << addr << std::endl;
+    return true;
 }
 
 void CNNGVoiceStream::InitOpusEncoder()
@@ -188,7 +231,13 @@ void CNNGVoiceStream::WriteAudio(const int16_t* samples, int count)
 
 void CNNGVoiceStream::SendOpusFrame(const unsigned char* data, int len)
 {
-    if (!m_SocketOpen) return;
+    if (!m_SocketOpen) {
+        static int warnCounter = 0;
+        if ((warnCounter++ % 100) == 0) {
+            std::cerr << "NNGVoiceStream[" << m_Module << "]: Cannot send Opus - socket not open" << std::endl;
+        }
+        return;
+    }
 
     // Create a simple binary message: [module_char][opus_data]
     std::vector<unsigned char> message;
@@ -198,8 +247,19 @@ void CNNGVoiceStream::SendOpusFrame(const unsigned char* data, int len)
 
     int rv = nng_send(m_Socket, (void*)message.data(), message.size(), NNG_FLAG_NONBLOCK);
     if (rv != 0 && rv != NNG_EAGAIN) {
-        std::cerr << "NNGVoiceStream[" << m_Module << "]: Send error: " 
-                  << nng_strerror(rv) << std::endl;
+        static int errorCounter = 0;
+        // Only log every 10th error to avoid flooding
+        if ((errorCounter++ % 10) == 0) {
+            std::cerr << "NNGVoiceStream[" << m_Module << "]: Send Opus error (" 
+                      << errorCounter << "): " << nng_strerror(rv) << std::endl;
+        }
+    } else if (rv == NNG_EAGAIN) {
+        // Buffer full - normal under high load
+        static int dropCounter = 0;
+        if ((dropCounter++ % 100) == 0) {
+            std::cerr << "NNGVoiceStream[" << m_Module << "]: Send buffer full, Opus frame dropped (" 
+                      << dropCounter << " total)" << std::endl;
+        }
     }
 }
 
@@ -207,6 +267,9 @@ void CNNGVoiceStream::SendOpusFrame(const unsigned char* data, int len)
 void CNNGVoiceStream::ReceiveThread()
 {
     std::cout << "NNGVoiceStream[" << m_Module << "]: Receive thread started" << std::endl;
+    
+    int consecutiveErrors = 0;
+    const int maxConsecutiveErrors = 10;
     
     while (m_Running) {
         void* msg_buf = nullptr;
@@ -217,10 +280,28 @@ void CNNGVoiceStream::ReceiveThread()
         
         if (rv != 0) {
             if (m_Running) {
-                std::cerr << "NNGVoiceStream[" << m_Module << "]: Receive error: " 
-                          << nng_strerror(rv) << std::endl;
+                consecutiveErrors++;
+                
+                // Only log every Nth error to avoid flooding logs
+                if (consecutiveErrors == 1 || (consecutiveErrors % 100) == 0) {
+                    std::cerr << "NNGVoiceStream[" << m_Module << "]: Receive error (" 
+                              << consecutiveErrors << "): " << nng_strerror(rv) << std::endl;
+                }
+                
+                if (consecutiveErrors >= maxConsecutiveErrors && (consecutiveErrors % maxConsecutiveErrors) == 0) {
+                    std::cerr << "NNGVoiceStream[" << m_Module << "]: Warning - no client connected or connection issues" << std::endl;
+                }
             }
+            // Small delay to avoid busy-wait
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
             continue;
+        }
+        
+        // Successfully received - reset error counter
+        if (consecutiveErrors > 0) {
+            std::cout << "NNGVoiceStream[" << m_Module << "]: Connection recovered after " 
+                      << consecutiveErrors << " errors" << std::endl;
+            consecutiveErrors = 0;
         }
         
         if (msg_buf && msg_sz > 0) {
@@ -243,6 +324,7 @@ void CNNGVoiceStream::HandleMessage(const unsigned char* data, int len)
         std::string module = msg.value("module", "");
         std::string callsign = msg.value("callsign", "");
         std::string source = msg.value("source", "");  // Extract source tag (e.g., "web")
+        std::string sessionId = msg.value("session_id", "");  // Extract session ID
         
         // Only handle messages for this module (except session_stop which doesn't have module)
         if (!module.empty() && module[0] != m_Module) {
@@ -251,18 +333,20 @@ void CNNGVoiceStream::HandleMessage(const unsigned char* data, int len)
         
         // NEW: Session lifecycle messages (Phase 2)
         if (type == "voice_session_start") {
-            HandleVoiceSessionStart(module, callsign, source);
+            HandleVoiceSessionStart(module, callsign, source, sessionId);
         }
         else if (type == "voice_session_stop") {
             HandleVoiceSessionStop(callsign);
         }
-        // UPDATED: PTT messages now use session map
-        else if (type == "ptt_start") {
-            HandlePTTStart(callsign);
-        }
-        else if (type == "ptt_stop") {
-            HandlePTTStop(callsign);
-        }
+        // DEPRECATED: PTT messages via PAIR socket are no longer used.
+        // PTT control now uses REQ/REP sockets (see HandleControlMessage) for guaranteed delivery.
+        // These handlers are kept temporarily for backward compatibility but should be removed.
+        // else if (type == "ptt_start") {
+        //     HandlePTTStart(callsign);
+        // }
+        // else if (type == "ptt_stop") {
+        //     HandlePTTStop(callsign);
+        // }
         else if (type == "audio_data") {
             // Extract Opus data (can be either array or base64 string)
             if (msg.contains("opus")) {
@@ -289,7 +373,7 @@ void CNNGVoiceStream::HandleMessage(const unsigned char* data, int len)
 }
 
 // NEW - Phase 2: Session lifecycle management
-void CNNGVoiceStream::HandleVoiceSessionStart(const std::string& module, const std::string& callsign, const std::string& source)
+void CNNGVoiceStream::HandleVoiceSessionStart(const std::string& module, const std::string& callsign, const std::string& source, const std::string& sessionId)
 {
     std::lock_guard<std::mutex> lock(m_SessionMutex);
     
@@ -314,6 +398,7 @@ void CNNGVoiceStream::HandleVoiceSessionStart(const std::string& module, const s
     session.activeStream = nullptr;
     session.callsign = callsign;
     session.source = source;
+    session.sessionId = sessionId;  // Store session ID for recording notifications
     session.module = module;
     session.createdAt = time(nullptr);
     session.hasActiveStream = false;
@@ -325,7 +410,11 @@ void CNNGVoiceStream::HandleVoiceSessionStart(const std::string& module, const s
     // Log with source tag for easy identification
     std::string sourceTag = source.empty() ? "" : "[" + source + "] ";
     std::cout << "NNGVoiceStream[" << m_Module << "]: " << sourceTag 
-              << "Voice session started: " << callsign << " on module " << module << std::endl;
+              << "Voice session started: " << callsign << " on module " << module;
+    if (!sessionId.empty()) {
+        std::cout << " (session_id: " << sessionId << ")";
+    }
+    std::cout << std::endl;
 }
 
 void CNNGVoiceStream::HandleVoiceSessionStop(const std::string& callsign)
@@ -496,6 +585,14 @@ void CNNGVoiceStream::HandleAudioData(const std::string& module, const std::stri
         return;
     }
     
+    // Log successful decode
+    static uint32_t decodeCount = 0;
+    if (++decodeCount % 10 == 1) {  // Log every 10th decode
+        std::cout << "NNGVoiceStream[" << m_Module << "]: Decoded Opus packet #" << decodeCount 
+                  << " from " << callsign << " (" << opusLen << " bytes -> " 
+                  << num_samples << " PCM samples)" << std::endl;
+    }
+    
     // Inject PCM audio into reflector via stream
     // Create USRP frame packet with PCM data
     // The last parameter indicates if this is the last frame (we don't know yet, so false)
@@ -584,8 +681,383 @@ bool CNNGVoiceStream::ModuleHasActiveStream(const std::string& excludeCallsign) 
     return false;
 }
 
+std::string CNNGVoiceStream::GetActiveStreamUser(const std::string& excludeCallsign) const
+{
+    // Note: Caller should already hold m_SessionMutex lock
+    for (const auto& pair : m_Sessions) {
+        const VoiceSession& session = pair.second;
+        
+        // Skip the callsign we're checking for (allow same user to restart)
+        if (session.callsign == excludeCallsign) {
+            continue;
+        }
+        
+        // Check if this session has an active stream
+        if (session.hasActiveStream) {
+            return session.callsign;
+        }
+    }
+    
+    return "";  // No active stream found
+}
+
 uint16_t CNNGVoiceStream::GenerateStreamId()
 {
     // Generate a random stream ID (same method used by other protocols)
     return static_cast<uint16_t>(::rand());
 }
+
+bool CNNGVoiceStream::IsWebClient(std::shared_ptr<CClient> client) const
+{
+    if (!client) {
+        return false;
+    }
+    
+    std::lock_guard<std::mutex> lock(const_cast<std::mutex&>(m_SessionMutex));
+    
+    // Check if this client's callsign exists in our sessions map
+    // and has source == "web"
+    std::string callsign = client->GetCallsign().GetCS();
+    auto it = m_Sessions.find(callsign);
+    
+    if (it != m_Sessions.end()) {
+        const VoiceSession& session = it->second;
+        return (session.source == "web" && session.virtualClient == client);
+    }
+    
+    return false;
+}
+
+void CNNGVoiceStream::SendRecordingComplete(const std::string& callsign, const std::string& audioFile, const std::string& sessionId)
+{
+    std::cout << "NNGVoiceStream[" << m_Module << "]: SendRecordingComplete called for " << callsign 
+              << ", file=" << audioFile << ", sessionId=" << sessionId << std::endl;
+    
+    if (!m_SocketOpen) {
+        std::cout << "NNGVoiceStream[" << m_Module << "]: Socket not open, skipping recording_complete" << std::endl;
+        return;
+    }
+    
+    std::lock_guard<std::mutex> lock(m_Mutex);
+    
+    // Create JSON message for recording_complete
+    json msg;
+    msg["type"] = "recording_complete";
+    msg["callsign"] = callsign;
+    msg["module"] = std::string(1, m_Module);
+    msg["audio_file"] = audioFile;
+    
+    if (!sessionId.empty()) {
+        msg["session_id"] = sessionId;
+    }
+    
+    std::string msg_str = msg.dump();
+    std::cout << "NNGVoiceStream[" << m_Module << "]: Sending recording_complete JSON: " << msg_str << std::endl;
+    
+    int rv = nng_send(m_Socket, (void*)msg_str.c_str(), msg_str.size(), NNG_FLAG_NONBLOCK);
+    if (rv != 0 && rv != NNG_EAGAIN) {
+        std::cerr << "NNGVoiceStream[" << m_Module << "]: Failed to send recording_complete: " 
+                  << nng_strerror(rv) << " (rv=" << rv << ")" << std::endl;
+    } else if (rv == NNG_EAGAIN) {
+        std::cout << "NNGVoiceStream[" << m_Module << "]: Send would block (NNG_EAGAIN), message may be dropped" << std::endl;
+    } else {
+        std::cout << "NNGVoiceStream[" << m_Module << "]: Successfully sent recording_complete for " 
+                  << callsign << " (file: " << audioFile << ")" << std::endl;
+    }
+}
+
+void CNNGVoiceStream::NotifyRecordingComplete(const std::string& callsign, const std::string& recording, const std::string& source, const std::string& sessionId)
+{
+    std::cout << "NNGVoiceStream[" << m_Module << "]: NotifyRecordingComplete called for " << callsign 
+              << ", source='" << source << "', sessionId='" << sessionId << "'" << std::endl;
+    
+    if (callsign.empty()) {
+        std::cout << "NNGVoiceStream[" << m_Module << "]: Callsign is empty, returning" << std::endl;
+        return;
+    }
+    
+    if (recording.empty()) {
+        std::cout << "NNGVoiceStream[" << m_Module << "]: Recording filename is empty, returning" << std::endl;
+        return;
+    }
+    
+    // Only send notification for web clients
+    if (source == "web") {
+        std::cout << "NNGVoiceStream[" << m_Module << "]: Source is 'web', calling SendRecordingComplete..." << std::endl;
+        SendRecordingComplete(callsign, recording, sessionId);
+    } else {
+        std::cout << "NNGVoiceStream[" << m_Module << "]: Source is '" << source 
+                  << "', NOT calling SendRecordingComplete (only 'web' sources get notifications)" << std::endl;
+    }
+}
+
+// NEW: Control thread - handles REQ/REP messages for PTT control
+void CNNGVoiceStream::ControlThread()
+{
+    std::cout << "NNGVoiceStream[" << m_Module << "]: Control thread started" << std::endl;
+    
+    while (m_Running) {
+        void* buf = nullptr;
+        size_t sz;
+        
+        int rv = nng_recv(m_ControlSocket, &buf, &sz, NNG_FLAG_ALLOC);
+        if (rv == 0 && buf != nullptr) {
+            HandleControlMessage((unsigned char*)buf, sz);
+            nng_free(buf, sz);
+        } else if (rv != NNG_EAGAIN) {
+            std::cerr << "NNGVoiceStream[" << m_Module << "]: Control recv error: " 
+                      << nng_strerror(rv) << std::endl;
+        }
+        
+        // Small delay to avoid busy-wait if socket is closed
+        if (rv != 0) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+    }
+    
+    std::cout << "NNGVoiceStream[" << m_Module << "]: Control thread stopped" << std::endl;
+}
+
+void CNNGVoiceStream::HandleControlMessage(const unsigned char* data, int len)
+{
+    try {
+        json msg = json::parse(data, data + len);
+        
+        std::string type = msg.value("type", "");
+        std::string module = msg.value("module", "");
+        std::string callsign = msg.value("callsign", "");
+        
+        std::cout << "NNGVoiceStream[" << m_Module << "]: Control message received: type=" 
+                  << type << ", callsign=" << callsign << std::endl;
+        
+        // Only handle messages for this module
+        if (!module.empty() && module[0] != m_Module) {
+            json response;
+            response["status"] = "error";
+            response["reason"] = "wrong_module";
+            response["message"] = "Message for different module";
+            SendControlResponse(response.dump());
+            return;
+        }
+        
+        if (type == "ptt_start") {
+            // Handle PTT start and generate response
+            std::lock_guard<std::mutex> lock(m_SessionMutex);
+            
+            auto it = m_Sessions.find(callsign);
+            if (it == m_Sessions.end()) {
+                json response;
+                response["status"] = "error";
+                response["reason"] = "no_session";
+                response["message"] = "No voice session exists for " + callsign;
+                SendControlResponse(response.dump());
+                return;
+            }
+            
+            VoiceSession& session = it->second;
+            
+            // DEBUG: Log all sessions and their stream states
+            std::cout << "NNGVoiceStream[" << m_Module << "]: PTT start request from " << callsign << std::endl;
+            std::cout << "NNGVoiceStream[" << m_Module << "]: Current sessions:" << std::endl;
+            for (const auto& pair : m_Sessions) {
+                std::cout << "  - " << pair.second.callsign << ": hasActiveStream=" 
+                          << (pair.second.hasActiveStream ? "true" : "false") << std::endl;
+            }
+            
+            // Check if module is busy with another user
+            std::string activeUser = GetActiveStreamUser(callsign);
+            if (!activeUser.empty()) {
+                json response;
+                response["status"] = "error";
+                response["reason"] = "module_busy";
+                response["active_user"] = activeUser;
+                response["message"] = "Module " + std::string(1, m_Module) + " is currently in use by " + activeUser;
+                SendControlResponse(response.dump());
+                std::cout << "NNGVoiceStream[" << m_Module << "]: PTT denied for " << callsign 
+                          << " - module busy with " << activeUser << std::endl;
+                return;
+            }
+            
+            // Generate stream ID and create header packet
+            session.streamId = GenerateStreamId();
+            session.packetCounter = 0;
+            
+            CCallsign my(callsign);
+            CCallsign ur("CQCQCQ");
+            CCallsign rpt1(m_Reflector->GetCallsign());
+            rpt1.SetCSModule(m_Module);
+            CCallsign rpt2(m_Reflector->GetCallsign());
+            rpt2.SetCSModule(m_Module);
+            
+            auto header = std::make_unique<CDvHeaderPacket>(my, ur, rpt1, rpt2, session.streamId, static_cast<uint8_t>(0));
+            header->SetPacketModule(m_Module);
+            
+            // Open stream through reflector
+            session.activeStream = m_Reflector->OpenStream(header, session.virtualClient);
+            
+            if (!session.activeStream) {
+                json response;
+                response["status"] = "error";
+                response["reason"] = "internal_error";
+                response["message"] = "Failed to open stream";
+                SendControlResponse(response.dump());
+                return;
+            }
+            
+            session.hasActiveStream = true;
+            
+            // Success response
+            json response;
+            response["status"] = "success";
+            response["stream_id"] = session.streamId;
+            SendControlResponse(response.dump());
+            
+            std::string sourceTag = session.source.empty() ? "" : "[" + session.source + "] ";
+            std::cout << "NNGVoiceStream[" << m_Module << "]: " << sourceTag << callsign 
+                      << " PTT started (stream " << session.streamId << ") via control socket" << std::endl;
+        }
+        else if (type == "ptt_stop") {
+            // Handle PTT stop and generate response
+            std::lock_guard<std::mutex> lock(m_SessionMutex);
+            
+            std::cout << "NNGVoiceStream[" << m_Module << "]: PTT stop request from " << callsign << std::endl;
+            
+            auto it = m_Sessions.find(callsign);
+            if (it == m_Sessions.end()) {
+                std::cout << "NNGVoiceStream[" << m_Module << "]: PTT stop - no session found for " << callsign << std::endl;
+                json response;
+                response["status"] = "error";
+                response["reason"] = "no_session";
+                response["message"] = "No voice session exists for " + callsign;
+                SendControlResponse(response.dump());
+                std::cout << "NNGVoiceStream[" << m_Module << "]: PTT stop - sent no_session error response" << std::endl;
+                return;
+            }
+            
+            VoiceSession& session = it->second;
+            
+            std::cout << "NNGVoiceStream[" << m_Module << "]: PTT stop - session found, hasActiveStream=" 
+                      << (session.hasActiveStream ? "true" : "false") << std::endl;
+            
+            if (!session.hasActiveStream) {
+                // No active stream, but not an error - just acknowledge
+                std::cout << "NNGVoiceStream[" << m_Module << "]: PTT stop - no active stream, sending success anyway" << std::endl;
+                json response;
+                response["status"] = "success";
+                SendControlResponse(response.dump());
+                std::cout << "NNGVoiceStream[" << m_Module << "]: PTT stop - sent success response (no active stream)" << std::endl;
+                return;
+            }
+            
+            std::cout << "NNGVoiceStream[" << m_Module << "]: PTT stop - closing active stream" << std::endl;
+            
+            // Close reflector stream
+            // NOTE: We avoid calling m_Reflector->CloseStream() because it has a blocking wait loop
+            // that waits for the stream queue to be empty, which can hang indefinitely.
+            // Instead, we manually perform the necessary cleanup steps without the blocking wait,
+            // similar to how USRPProtocol handles this.
+            if (session.activeStream && m_Reflector) {
+                if (session.streamId != 0) {
+                    // Push final silence packet to mark end of stream
+                    int16_t silence[FRAME_SIZE] = {0};
+                    auto packet = std::make_unique<CDvFramePacket>(silence, session.streamId, true);
+                    packet->SetPacketModule(m_Module);
+                    session.activeStream->Push(std::move(packet));
+                }
+                
+                // Lock clients for the following operations
+                m_Reflector->GetClients();
+                
+                auto client = session.activeStream->GetOwnerClient();
+                if (client) {
+                    // Demote client from master
+                    client->NotAMaster();
+                    std::cout << "NNGVoiceStream[" << m_Module << "]: PTT stop - client demoted from master" << std::endl;
+                    
+                    // Stop recording and get the filename
+                    std::string recording = session.activeStream->StopRecording();
+                    std::cout << "NNGVoiceStream[" << m_Module << "]: PTT stop - recording stopped: " << recording << std::endl;
+                    
+                    // Notify users/dashboard about stream closing
+                    std::cout << "NNGVoiceStream[" << m_Module << "]: PTT stop - calling GetUsers()->Closing()..." << std::endl;
+                    m_Reflector->GetUsers()->Closing(
+                        session.activeStream->GetUserCallsign(), 
+                        m_Module, 
+                        client->GetProtocol(), 
+                        recording
+                    );
+                    std::cout << "NNGVoiceStream[" << m_Module << "]: PTT stop - calling ReleaseUsers()..." << std::endl;
+                    m_Reflector->ReleaseUsers();
+                    std::cout << "NNGVoiceStream[" << m_Module << "]: PTT stop - ReleaseUsers() done" << std::endl;
+                    
+                    // Send recording_complete notification to this voice stream for web clients
+                    if (!recording.empty()) {
+                        std::cout << "NNGVoiceStream[" << m_Module << "]: PTT stop - calling NotifyRecordingComplete()..." << std::endl;
+                        NotifyRecordingComplete(callsign, recording, session.source, session.sessionId);
+                        std::cout << "NNGVoiceStream[" << m_Module << "]: PTT stop - NotifyRecordingComplete() done" << std::endl;
+                    }
+                }
+                
+                // Release clients lock
+                std::cout << "NNGVoiceStream[" << m_Module << "]: PTT stop - calling ReleaseClients()..." << std::endl;
+                m_Reflector->ReleaseClients();
+                std::cout << "NNGVoiceStream[" << m_Module << "]: PTT stop - ReleaseClients() done" << std::endl;
+                
+                // Close the packet stream directly (non-blocking)
+                session.activeStream->ClosePacketStream();
+                std::cout << "NNGVoiceStream[" << m_Module << "]: PTT stop - stream closed directly (non-blocking)" << std::endl;
+                
+                session.activeStream = nullptr;
+            }
+            
+            session.hasActiveStream = false;
+            
+            std::string sourceTag = session.source.empty() ? "" : "[" + session.source + "] ";
+            std::cout << "NNGVoiceStream[" << m_Module << "]: " << sourceTag << callsign 
+                      << " stream closed, hasActiveStream set to false" << std::endl;
+            
+            // Success response
+            json response;
+            response["status"] = "success";
+            response["packet_count"] = static_cast<int>(session.packetCounter);
+            SendControlResponse(response.dump());
+            
+            std::cout << "NNGVoiceStream[" << m_Module << "]: " << sourceTag << callsign 
+                      << " PTT stopped (" << static_cast<int>(session.packetCounter) 
+                      << " packets) via control socket" << std::endl;
+            
+            // Reset packet counter for next transmission
+            session.packetCounter = 0;
+        }
+        else {
+            json response;
+            response["status"] = "error";
+            response["reason"] = "unknown_type";
+            response["message"] = "Unknown message type: " + type;
+            SendControlResponse(response.dump());
+        }
+    }
+    catch (const json::exception& e) {
+        std::cerr << "NNGVoiceStream[" << m_Module << "]: Control message JSON parse error: " 
+                  << e.what() << std::endl;
+        
+        json response;
+        response["status"] = "error";
+        response["reason"] = "parse_error";
+        response["message"] = std::string("JSON parse error: ") + e.what();
+        SendControlResponse(response.dump());
+    }
+}
+
+void CNNGVoiceStream::SendControlResponse(const std::string& jsonResponse)
+{
+    std::cout << "NNGVoiceStream[" << m_Module << "]: SendControlResponse called, response: " << jsonResponse << std::endl;
+    int rv = nng_send(m_ControlSocket, (void*)jsonResponse.c_str(), jsonResponse.size(), 0);
+    if (rv != 0) {
+        std::cerr << "NNGVoiceStream[" << m_Module << "]: Failed to send control response: " 
+                  << nng_strerror(rv) << std::endl;
+    } else {
+        std::cout << "NNGVoiceStream[" << m_Module << "]: Control response sent successfully" << std::endl;
+    }
+}
+

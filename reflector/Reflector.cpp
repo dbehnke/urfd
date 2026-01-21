@@ -110,20 +110,35 @@ bool CReflector::Start(void)
 					auto voicestream = std::make_shared<CNNGVoiceStream>(c, this);
 					if (voicestream)
 					{
-						std::string addr = g_Configure.GetString(g_Keys.voice.nngaddr);
-						// Each module gets a unique port: base_port + module_offset
-						// For example: tcp://127.0.0.1:5556 becomes 5556, 5557, 5558, etc.
-						size_t port_pos = addr.rfind(':');
+					std::string addr = g_Configure.GetString(g_Keys.voice.nngaddr);
+					// Each module gets a unique port: base_port + module_offset
+					// For example: tcp://127.0.0.1:5556 becomes 5556, 5557, 5558, etc.
+					size_t port_pos = addr.rfind(':');
+					if (port_pos != std::string::npos)
+					{
+						int base_port = std::stoi(addr.substr(port_pos + 1));
+						int module_port = base_port + (c - 'A');
+						addr = addr.substr(0, port_pos + 1) + std::to_string(module_port);
+					}
+					
+					if (voicestream->Start(addr))
+					{
+						// NEW: Start control socket on port base_port + 1000 + module_offset
+						// For example: audio on 5556, control on 6556
+						std::string control_addr = addr;
 						if (port_pos != std::string::npos)
 						{
-							int base_port = std::stoi(addr.substr(port_pos + 1));
-							int module_port = base_port + (c - 'A');
-							addr = addr.substr(0, port_pos + 1) + std::to_string(module_port);
+							int audio_port = std::stoi(control_addr.substr(port_pos + 1));
+							int control_port = audio_port + 1000;  // Control port is 1000 above audio port
+							control_addr = control_addr.substr(0, port_pos + 1) + std::to_string(control_port);
 						}
 						
-						if (voicestream->Start(addr))
+						if (!voicestream->StartControlSocket(control_addr))
 						{
-							m_VoiceStream[c] = voicestream;
+							std::cerr << "Warning: Failed to start control socket for module '" << c << "'" << std::endl;
+						}
+						
+						m_VoiceStream[c] = voicestream;
 						}
 						else
 						{
@@ -341,6 +356,18 @@ void CReflector::CloseStream(std::shared_ptr<CPacketStream> stream)
 			std::string recording = stream->StopRecording();
 			GetUsers()->Closing(stream->GetUserCallsign(), GetStreamModule(stream), stream->GetOwnerClient()->GetProtocol(), recording);
 			ReleaseUsers();
+			
+			// Send recording_complete notification to NNGVoiceStream for web clients
+			// NOTE: This is now handled directly in NNGVoiceStream::HandleControlMessage (ptt_stop)
+			// because we need access to the session information (source, sessionId) which is not
+			// available in this context. Non-web clients don't need recording notifications.
+			// Keeping this code commented for reference.
+			// if (!recording.empty()) {
+			// 	auto voiceStream = GetVoiceStream(GetStreamModule(stream));
+			// 	if (voiceStream && voiceStream->IsStreaming()) {
+			// 		voiceStream->NotifyRecordingComplete(client, recording);
+			// 	}
+			// }
 
 			std::cout << "Closing stream of module " << GetStreamModule(stream) << " (Called by CloseStream)" << std::endl;
 		}
