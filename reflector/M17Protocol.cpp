@@ -364,10 +364,10 @@ void CM17Protocol::Task(void)
 		else
 		{
 			// invalid packet
-			// std::string title("Unknown M17 packet from ");
-			// title += Ip.GetAddress();
-			// Buffer.Dump(title);
-            // Silence unknown packets to reduce log noise during dev/testing
+			std::string title("Unknown M17 packet from ");
+			title += Ip.GetAddress();
+			Buffer.Dump(title);
+            // Temporarily enabled to debug connection issues
 		}
 	}
 

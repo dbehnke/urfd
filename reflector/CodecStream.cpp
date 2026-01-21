@@ -155,6 +155,12 @@ void CCodecStream::RxThread()
 		
 		if (g_TCServer.Receive(m_CSModule, &pack, 1000)) // 1s timeout to check keep_running occasionally
 		{
+			static uint32_t rxCount = 0;
+			if (++rxCount % 10 == 1) {  // Log every 10th packet
+				std::cout << "CodecStream[" << m_CSModule << "]: RxThread - Received packet from transcoder (stream " 
+				          << std::hex << std::showbase << ntohs(pack.streamid) << std::dec << std::noshowbase << ")" << std::endl;
+			}
+			
 			if ( m_LocalQueue.IsEmpty() )
 			{
 				std::cout << "Unexpected transcoded packet received from transcoder: Module='" << pack.module << "' StreamID=" << std::hex << std::showbase << ntohs(pack.streamid) << std::endl;
@@ -188,17 +194,31 @@ void CCodecStream::RxThread()
 					// update content with transcoded data
 					Packet->SetCodecData(&pack);
 					
-				// Write audio to recorder if active
-				if (m_Recorder.IsRecording())
-				{
-				    m_Recorder.Write(pack.usrp, 160);
-				}
+			// Write audio to recorder if active
+			if (m_Recorder.IsRecording())
+			{
+			    static uint32_t recordCount = 0;
+			    if (++recordCount % 10 == 1) {  // Log every 10th write
+			        std::cout << "CodecStream[" << m_CSModule << "]: Writing packet #" << recordCount 
+			                  << " to AudioRecorder (160 samples)" << std::endl;
+			    }
+			    m_Recorder.Write(pack.usrp, 160);
+			}
 				
 				// Send audio to voice stream if active
+				// IMPORTANT: Skip if this is a web client to prevent echo
 				auto voiceStream = g_Reflector.GetVoiceStream(m_CSModule);
 				if (voiceStream && voiceStream->IsStreaming())
 				{
-				    voiceStream->WriteAudio(pack.usrp, 160);
+				    // Get the client who owns this stream
+				    auto ownerClient = m_PacketStream->GetOwnerClient();
+				    
+				    // Only send audio to voice stream if it's NOT from a web client
+				    // This prevents web audio from being echoed back to the dashboard
+				    if (!ownerClient || !voiceStream->IsWebClient(ownerClient))
+				    {
+				        voiceStream->WriteAudio(pack.usrp, 160);
+				    }
 				}
 
 				// mark the DStar sync frames if the source isn't dstar
@@ -255,14 +275,15 @@ void CCodecStream::TxThread(void)
 			// sets the packet counter, stream id, last_packet, module and start the trip timer
 			Frame->SetTCParams(m_uiTotalPackets++);
 
-			// now send to transcoder
-			int fd = g_TCServer.GetFD(Frame->GetCodecPacket()->module);
-			if (fd < 0)
-			{
-				// Crap! We've lost connection to the transcoder!
-				// discard packet
-				continue;
-			}
+		// now send to transcoder
+		int fd = g_TCServer.GetFD(Frame->GetCodecPacket()->module);
+		if (fd < 0)
+		{
+			// Crap! We've lost connection to the transcoder!
+			std::cerr << "CodecStream[" << m_CSModule << "]: TxThread - No transcoder connection (fd < 0), discarding packet" << std::endl;
+			// discard packet
+			continue;
+		}
 
 			Frame->m_rtTimer.start();	// start the round-trip timer
 
@@ -279,15 +300,25 @@ void CCodecStream::TxThread(void)
 			// Copy data packet struct as we need it for sending
 			STCPacket pToSend = *packetData; 
 			
-			m_LocalQueue.Push(std::move(Frame));
+		m_LocalQueue.Push(std::move(Frame));
 
-			if (g_TCServer.Send(&pToSend))
-			{
-				// Send failed. 
-				// We should ideally remove it from m_LocalQueue, but CSafePacketQueue has no RemoveLast.
-				// It will just rot there until cleared on ResetStats or mismatch handling.
-				// This is rare.
+		if (g_TCServer.Send(&pToSend))
+		{
+			// Send failed. 
+			std::cerr << "CodecStream[" << m_CSModule << "]: TxThread - Failed to send packet to transcoder" << std::endl;
+			// We should ideally remove it from m_LocalQueue, but CSafePacketQueue has no RemoveLast.
+			// It will just rot there until cleared on ResetStats or mismatch handling.
+			// This is rare.
+		}
+		else
+		{
+			// Success - add debug logging
+			static uint32_t txCount = 0;
+			if (++txCount % 10 == 1) {  // Log every 10th packet (first, 11th, 21st, etc.)
+				std::cout << "CodecStream[" << m_CSModule << "]: TxThread - Sent packet #" << (m_uiTotalPackets-1) 
+				          << " to transcoder (stream " << std::hex << std::showbase << ntohs(pToSend.streamid) << std::dec << std::noshowbase << ")" << std::endl;
 			}
+		}
 		}
 	}
 }

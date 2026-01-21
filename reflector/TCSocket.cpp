@@ -41,15 +41,30 @@ void CTCSocket::Close(char module)
 
 bool CTCSocket::Send(const STCPacket *packet)
 {
-	if (m_Sock.id == 0) return true;
+	if (m_Sock.id == 0) {
+		std::cerr << "NNG: Cannot send - socket not initialized" << std::endl;
+		return true; // Indicate error
+	}
+	
+	if (!m_Connected) {
+		// Connection is down, but PAIR1 will queue or reconnect automatically
+		// Log warning but don't fail - let NNG handle it
+		static int warnCounter = 0;
+		if ((warnCounter++ % 100) == 0) {
+			std::cerr << "NNG: Send warning - not connected (message may be queued)" << std::endl;
+		}
+	}
 
 	int rv = nng_send(m_Sock, (void*)packet, sizeof(STCPacket), 0);
 	if (rv != 0)
 	{
-		// std::cerr << "NNG Send Error: " << nng_strerror(rv) << std::endl;
-		return true;
+		static int errorCounter = 0;
+		if ((errorCounter++ % 10) == 0) {
+			std::cerr << "NNG Send Error: " << nng_strerror(rv) << std::endl;
+		}
+		return true; // Indicate error
 	}
-	return false;
+	return false; // Success
 }
 
 bool CTCSocket::IsConnected(char module) const
@@ -66,6 +81,10 @@ int CTCSocket::GetFD(char module) const
 
 void CTCSocket::Dispatcher()
 {
+	bool wasDisconnected = false;
+	int consecutiveErrors = 0;
+	const int maxConsecutiveErrors = 10;
+	
 	while (m_Running)
 	{
 		STCPacket *buf = nullptr;
@@ -75,6 +94,18 @@ void CTCSocket::Dispatcher()
 		
 		if (rv == 0)
 		{
+			// Successfully received - reset error counter and check if we just reconnected
+			if (consecutiveErrors > 0) {
+				std::cout << "NNG: Connection recovered after " << consecutiveErrors << " errors" << std::endl;
+			}
+			consecutiveErrors = 0;
+			
+			if (wasDisconnected) {
+				std::cout << "NNG: Connection re-established" << std::endl;
+				wasDisconnected = false;
+				m_Connected = true;
+			}
+			
 			if (sz == sizeof(STCPacket))
 			{
 				STCPacket pkt;
@@ -120,10 +151,27 @@ void CTCSocket::Dispatcher()
 				std::cerr << "Received packet of incorrect size: " << sz << std::endl;
 			}
 		}
-		else if (rv != NNG_ETIMEDOUT)
+		else if (rv == NNG_ETIMEDOUT)
 		{
-			// Fatal error? 
-			// std::cerr << "NNG Recv Error: " << nng_strerror(rv) << std::endl;
+			// Normal timeout - just continue
+			continue;
+		}
+		else
+		{
+			// Connection error
+			consecutiveErrors++;
+			
+			if (!wasDisconnected) {
+				std::cerr << "NNG: Connection error: " << nng_strerror(rv) << std::endl;
+				wasDisconnected = true;
+				m_Connected = false;
+			}
+			
+			if (consecutiveErrors >= maxConsecutiveErrors && (consecutiveErrors % maxConsecutiveErrors) == 0) {
+				std::cerr << "NNG: Still disconnected after " << consecutiveErrors << " errors (waiting for reconnection...)" << std::endl;
+			}
+			
+			// PAIR1 handles reconnection automatically, just wait a bit
 			std::this_thread::sleep_for(std::chrono::milliseconds(100));
 		}
 	}
