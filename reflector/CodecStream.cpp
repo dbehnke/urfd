@@ -208,16 +208,54 @@ void CCodecStream::RxThread()
 				// Send audio to voice stream if active
 				// IMPORTANT: Skip if this is a web client to prevent echo
 				auto voiceStream = g_Reflector.GetVoiceStream(m_CSModule);
+				
+				// DIAGNOSTIC: Log voice stream state
+				static uint32_t voiceCheckCount = 0;
+				if (++voiceCheckCount % 10 == 1) {
+				    std::cout << "CodecStream[" << m_CSModule << "]: DIAGNOSTIC #" << voiceCheckCount 
+				              << " - voiceStream=" << (voiceStream ? "EXISTS" : "NULL") 
+				              << ", IsStreaming=" << (voiceStream && voiceStream->IsStreaming() ? "true" : "false") << std::endl;
+				}
+				
 				if (voiceStream && voiceStream->IsStreaming())
 				{
 				    // Get the client who owns this stream
 				    auto ownerClient = m_PacketStream->GetOwnerClient();
 				    
+				    // DIAGNOSTIC: Check owner client and web client status
+				    bool isWebClient = ownerClient && voiceStream->IsWebClient(ownerClient);
+				    static uint32_t echoCheckCount = 0;
+				    if (++echoCheckCount % 10 == 1) {
+				        std::cout << "CodecStream[" << m_CSModule << "]: DIAGNOSTIC #" << echoCheckCount 
+				                  << " - ownerClient=" << (ownerClient ? ownerClient->GetCallsign().GetCS() : "NULL")
+				                  << ", isWebClient=" << (isWebClient ? "true" : "false")
+				                  << ", protocol=" << (ownerClient ? std::to_string(static_cast<int>(ownerClient->GetProtocol())) : "N/A") << std::endl;
+				    }
+				    
 				    // Only send audio to voice stream if it's NOT from a web client
 				    // This prevents web audio from being echoed back to the dashboard
 				    if (!ownerClient || !voiceStream->IsWebClient(ownerClient))
 				    {
-				        voiceStream->WriteAudio(pack.usrp, 160);
+				        static uint32_t voiceWriteCount = 0;
+				        if (++voiceWriteCount % 10 == 1) {
+				            std::cout << "CodecStream[" << m_CSModule << "]: DIAGNOSTIC #" << voiceWriteCount 
+				                      << " - Calling voiceStream->WriteAudio() with 160 samples" << std::endl;
+				        }
+				        // Pass the callsign to WriteAudio so it can be included in the JSON message
+				        std::string callsign = ownerClient ? std::string(ownerClient->GetCallsign().GetCS()) : "";
+				        voiceStream->WriteAudio(pack.usrp, 160, callsign);
+				    } else {
+				        static uint32_t echoBlockCount = 0;
+				        if (++echoBlockCount % 10 == 1) {
+				            std::cout << "CodecStream[" << m_CSModule << "]: DIAGNOSTIC #" << echoBlockCount 
+				                      << " - BLOCKED by echo prevention (web client sending)" << std::endl;
+				        }
+				    }
+				} else {
+				    static uint32_t noStreamCount = 0;
+				    if (++noStreamCount % 10 == 1) {
+				        std::cout << "CodecStream[" << m_CSModule << "]: DIAGNOSTIC #" << noStreamCount 
+				                  << " - Voice stream not available or not streaming" << std::endl;
 				    }
 				}
 

@@ -50,7 +50,7 @@ public:
 
     // Write PCM audio samples (8kHz mono, int16_t) - TX Path
     // This is called from CodecStream::RxThread when audio is transcoded
-    void WriteAudio(const int16_t* samples, int count);
+    void WriteAudio(const int16_t* samples, int count, const std::string& callsign = "");
 
     // Check if streaming is active
     bool IsStreaming() const { return m_IsStreaming; }
@@ -67,7 +67,7 @@ public:
 private:
     void InitOpusEncoder();
     void InitOpusDecoder();
-    void SendOpusFrame(const unsigned char* data, int len);
+    void SendOpusFrame(const unsigned char* data, int len, const std::string& callsign = "");
     void Cleanup();
     
     // RX Path - receive thread

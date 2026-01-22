@@ -203,9 +203,35 @@ void CNNGVoiceStream::InitOpusDecoder()
     }
 }
 
-void CNNGVoiceStream::WriteAudio(const int16_t* samples, int count)
+void CNNGVoiceStream::WriteAudio(const int16_t* samples, int count, const std::string& callsign)
 {
-    if (!m_IsStreaming || !m_Encoder) return;
+    // DIAGNOSTIC: Log entry to WriteAudio
+    static uint32_t writeCount = 0;
+    if (++writeCount % 10 == 1) {
+        std::cout << "NNGVoiceStream[" << m_Module << "]: DIAGNOSTIC #" << writeCount 
+                  << " - WriteAudio() called with " << count << " samples"
+                  << ", m_IsStreaming=" << (m_IsStreaming ? "true" : "false")
+                  << ", m_Encoder=" << (m_Encoder ? "valid" : "NULL")
+                  << ", callsign=" << callsign << std::endl;
+    }
+    
+    if (!m_IsStreaming || !m_Encoder) {
+        static int warnCounter = 0;
+        if ((warnCounter++ % 100) == 0) {
+            std::cout << "NNGVoiceStream[" << m_Module << "]: DIAGNOSTIC #" << warnCounter 
+                      << " - WriteAudio() SKIPPED (not streaming or no encoder)" << std::endl;
+        }
+        return;
+    }
+    
+    if (!m_IsStreaming || !m_Encoder) {
+        static uint32_t skipCount = 0;
+        if (++skipCount % 10 == 1) {
+            std::cout << "NNGVoiceStream[" << m_Module << "]: DIAGNOSTIC #" << skipCount 
+                      << " - WriteAudio() SKIPPED (not streaming or no encoder)" << std::endl;
+        }
+        return;
+    }
 
     std::lock_guard<std::mutex> lock(m_Mutex);
 
@@ -221,7 +247,12 @@ void CNNGVoiceStream::WriteAudio(const int16_t* samples, int count)
             std::cerr << "NNGVoiceStream[" << m_Module << "]: Opus encode error: " 
                       << opus_strerror(len) << std::endl;
         } else if (len > 0) {
-            SendOpusFrame(out_buf, len);
+            static uint32_t encodeCount = 0;
+            if (++encodeCount % 10 == 1) {
+                std::cout << "NNGVoiceStream[" << m_Module << "]: DIAGNOSTIC #" << encodeCount 
+                          << " - Encoded Opus frame (" << len << " bytes), calling SendOpusFrame()" << std::endl;
+            }
+            SendOpusFrame(out_buf, len, callsign);
         }
         
         // Remove processed samples
@@ -229,8 +260,17 @@ void CNNGVoiceStream::WriteAudio(const int16_t* samples, int count)
     }
 }
 
-void CNNGVoiceStream::SendOpusFrame(const unsigned char* data, int len)
+void CNNGVoiceStream::SendOpusFrame(const unsigned char* data, int len, const std::string& callsign)
 {
+    // DIAGNOSTIC: Log SendOpusFrame entry
+    static uint32_t sendFrameCount = 0;
+    if (++sendFrameCount % 10 == 1) {
+        std::cout << "NNGVoiceStream[" << m_Module << "]: DIAGNOSTIC #" << sendFrameCount 
+                  << " - SendOpusFrame() called with " << len << " bytes"
+                  << ", m_SocketOpen=" << (m_SocketOpen ? "true" : "false")
+                  << ", callsign=" << callsign << std::endl;
+    }
+    
     if (!m_SocketOpen) {
         static int warnCounter = 0;
         if ((warnCounter++ % 100) == 0) {
@@ -239,13 +279,34 @@ void CNNGVoiceStream::SendOpusFrame(const unsigned char* data, int len)
         return;
     }
 
-    // Create a simple binary message: [module_char][opus_data]
-    std::vector<unsigned char> message;
-    message.reserve(len + 1);
-    message.push_back(static_cast<unsigned char>(m_Module));
-    message.insert(message.end(), data, data + len);
+    // Create JSON message for dashboard compatibility
+    // Format: {"type":"audio_data","module":"A","callsign":"KF8S","opus":[1,2,3,...]}
+    json msg;
+    msg["type"] = "audio_data";
+    msg["module"] = std::string(1, m_Module);
+    
+    // Include callsign if provided
+    if (!callsign.empty()) {
+        msg["callsign"] = callsign;
+    }
+    
+    // Convert Opus bytes to JSON array
+    std::vector<int> opusArray(data, data + len);
+    msg["opus"] = opusArray;
+    
+    std::string msg_str = msg.dump();
 
-    int rv = nng_send(m_Socket, (void*)message.data(), message.size(), NNG_FLAG_NONBLOCK);
+    int rv = nng_send(m_Socket, (void*)msg_str.c_str(), msg_str.size(), NNG_FLAG_NONBLOCK);
+    
+    // DIAGNOSTIC: Log send result
+    static uint32_t sendResultCount = 0;
+    if (++sendResultCount % 10 == 1) {
+        std::cout << "NNGVoiceStream[" << m_Module << "]: DIAGNOSTIC #" << sendResultCount 
+                  << " - nng_send() JSON result: rv=" << rv 
+                  << ", JSON size=" << msg_str.size() << " bytes"
+                  << " (0=success, -" << NNG_EAGAIN << "=would_block)" << std::endl;
+    }
+    
     if (rv != 0 && rv != NNG_EAGAIN) {
         static int errorCounter = 0;
         // Only log every 10th error to avoid flooding

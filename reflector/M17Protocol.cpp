@@ -464,6 +464,13 @@ void CM17Protocol::OnDvHeaderPacketIn(std::unique_ptr<CDvHeaderPacket> &Header, 
 
 void CM17Protocol::OnDvFramePacketIn(std::unique_ptr<CDvFramePacket> &Frame, const CIp *Ip)
 {
+	// DIAGNOSTIC: Log M17 frame reception
+	static uint32_t m17FrameCount = 0;
+	if (++m17FrameCount % 10 == 1) {
+		std::cout << "M17Protocol: DIAGNOSTIC #" << m17FrameCount 
+		          << " - OnDvFramePacketIn() called, StreamID=" << std::hex << Frame->GetStreamId() << std::dec << std::endl;
+	}
+	
 	// Keep the client alive
 	if (Ip) {
 		CClients *clients = g_Reflector.GetClients();
