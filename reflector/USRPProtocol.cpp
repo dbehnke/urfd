@@ -249,6 +249,19 @@ void CUSRPProtocol::HandleQueue(void)
 		// get our sender's id
 		const auto module = packet->GetPacketModule();
 		CBuffer buffer;
+		
+		// DIAGNOSTIC: Track packet processing
+		static uint32_t packetCount = 0;
+		bool isHeader = packet->IsDvHeader();
+		bool isFrame = packet->IsDvFrame();
+		
+		if (++packetCount % 10 == 1 || isHeader) {
+			std::cout << "USRPProtocol::HandleQueue #" << packetCount 
+			          << " - Module=" << module
+			          << ", Header=" << (isHeader ? "YES" : "no")
+			          << ", Frame=" << (isFrame ? "YES" : "no")
+			          << std::endl;
+		}
 
 		// check if it's header and update cache
 		if ( packet->IsDvHeader() )
@@ -258,29 +271,86 @@ void CUSRPProtocol::HandleQueue(void)
 			m_StreamsCache[module].m_dvHeader = CDvHeaderPacket((const CDvHeaderPacket &)*packet.get());
 			m_StreamsCache[module].m_iSeqCounter = 0;
 			EncodeUSRPHeaderPacket(m_StreamsCache[module].m_dvHeader, m_StreamsCache[module].m_iSeqCounter++, buffer);
+			
+			std::cout << "USRPProtocol: HEADER cached for module " << module 
+			          << ", callsign=" << m_StreamsCache[module].m_dvHeader.GetMyCallsign().GetCS()
+			          << ", encoded " << buffer.size() << " bytes"
+			          << std::endl;
 		}
 		else if ( packet->IsDvFrame() )
 		{
+			// Get PCM data to check if it's valid
+			const CDvFramePacket *framePacket = dynamic_cast<const CDvFramePacket*>(packet.get());
+			const uint8_t *pcmData = nullptr;
+			if (framePacket) {
+				pcmData = framePacket->GetCodecData(ECodecType::usrp);
+			}
+			
+			static uint32_t frameEncodeCount = 0;
+			if (++frameEncodeCount % 10 == 1) {
+				std::cout << "USRPProtocol: Encoding FRAME #" << frameEncodeCount 
+				          << " for module " << module
+				          << ", PCM data=" << (pcmData ? "VALID" : "NULL")
+				          << std::endl;
+			}
+			
 			EncodeUSRPPacket(m_StreamsCache[module].m_dvHeader, (const CDvFramePacket &)*packet.get(), m_StreamsCache[module].m_iSeqCounter++, buffer, packet->IsLastPacket());
 		}
 
 		// send it
 		if ( buffer.size() > 0 )
 		{
+			// DIAGNOSTIC: Track client distribution
+			int totalUSRPClients = 0;
+			int eligibleClients = 0;
+			int sentCount = 0;
+			
 			// and push it to all our clients linked to the module and who are not streaming in
 			CClients *clients = g_Reflector.GetClients();
 			auto it = clients->begin();
 			std::shared_ptr<CClient>client = nullptr;
 			while ( (client = clients->FindNextClient(EProtocol::usrp, it)) != nullptr )
 			{
+				totalUSRPClients++;
+				
+				bool isMaster = client->IsAMaster();
+				char clientModule = client->GetReflectorModule();
+				bool moduleMatches = (clientModule == module);
+				bool shouldSend = !isMaster && moduleMatches;
+				
+				// DIAGNOSTIC: Log each client's state (only for headers or every 10th frame)
+				static uint32_t clientCheckCount = 0;
+				if (isHeader || (++clientCheckCount % 10 == 1)) {
+					std::cout << "  USRP client: " << client->GetCallsign().GetCS()
+					          << " @ " << client->GetIp().GetAddress()
+					          << " - Module=" << clientModule
+					          << ", IsMaster=" << (isMaster ? "YES" : "no")
+					          << ", ModuleMatch=" << (moduleMatches ? "YES" : "no")
+					          << ", WillSend=" << (shouldSend ? "YES" : "NO")
+					          << std::endl;
+				}
+				
 				// is this client busy ?
-				if ( !client->IsAMaster() && (client->GetReflectorModule() == module) )
+				if ( shouldSend )
 				{
+					eligibleClients++;
 					// no, send the packet
 					Send(buffer, client->GetIp());
+					sentCount++;
 				}
 			}
 			g_Reflector.ReleaseClients();
+			
+			// DIAGNOSTIC: Summary of distribution
+			static uint32_t distCount = 0;
+			if (isHeader || (++distCount % 10 == 1)) {
+				std::cout << "USRPProtocol: Packet distribution summary - "
+				          << "TotalUSRPClients=" << totalUSRPClients
+				          << ", Eligible=" << eligibleClients
+				          << ", Sent=" << sentCount
+				          << ", BufferSize=" << buffer.size()
+				          << std::endl;
+			}
 		}
 	}
 }
@@ -414,9 +484,50 @@ void CUSRPProtocol::EncodeUSRPPacket(const CDvHeaderPacket &Header, const CDvFra
 
 	// audio
 	const uint8_t *pAudio = Frame.GetCodecData(ECodecType::usrp);
+	
+	// DIAGNOSTIC: Check PCM data validity
+	static uint32_t encodeFrameCount = 0;
+	if (++encodeFrameCount % 10 == 1) {
+		if (pAudio) {
+			// Calculate rough amplitude to detect silence
+			const int16_t *pcmSamples = reinterpret_cast<const int16_t*>(pAudio);
+			int32_t sumAbs = 0;
+			for (int i = 0; i < 160; i++) {
+				sumAbs += std::abs(pcmSamples[i]);
+			}
+			int avgAbs = sumAbs / 160;
+			
+			std::cout << "USRPProtocol::EncodeUSRPPacket #" << encodeFrameCount
+			          << " - Seq=" << iSeq
+			          << ", PCM=VALID"
+			          << ", AvgAmplitude=" << avgAbs
+			          << ", IsLast=" << (last ? "YES" : "no")
+			          << ", Callsign=" << Header.GetMyCallsign().GetCS()
+			          << std::endl;
+		} else {
+			std::cout << "USRPProtocol::EncodeUSRPPacket #" << encodeFrameCount
+			          << " - Seq=" << iSeq
+			          << ", PCM=NULL (ERROR!)"
+			          << ", IsLast=" << (last ? "YES" : "no")
+			          << ", Callsign=" << Header.GetMyCallsign().GetCS()
+			          << std::endl;
+		}
+	}
+	
 	if (pAudio)
 	{
 		::memcpy(Buffer.data() + 32, pAudio, 320);
+	}
+	else
+	{
+		// If no PCM data, fill with silence (zeros)
+		::memset(Buffer.data() + 32, 0, 320);
+		
+		static uint32_t nullDataCount = 0;
+		if (++nullDataCount % 5 == 1) {
+			std::cerr << "USRPProtocol: WARNING - NULL PCM data in frame, sending silence! (count=" 
+			          << nullDataCount << ")" << std::endl;
+		}
 	}
 }
 

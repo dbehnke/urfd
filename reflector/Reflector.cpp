@@ -392,15 +392,40 @@ void CReflector::RouterThread(const char ThisModule)
 		return;
 	}
 	const auto streamIn = pitem->second;
+	
+	// DIAGNOSTIC: Track RouterThread activity
+	uint32_t packetRouteCount = 0;
+	
 	while (keep_running)
 	{
 		// wait until something shows up
 		auto packet = streamIn->PopWait();
 
 		packet->SetPacketModule(ThisModule);
+		
+		// DIAGNOSTIC: Log packet routing (throttled)
+		bool isHeader = packet->IsDvHeader();
+		if (isHeader || (++packetRouteCount % 10 == 1)) {
+			std::cout << "RouterThread[" << ThisModule << "] #" << packetRouteCount
+			          << " - Routing " << (isHeader ? "HEADER" : "frame")
+			          << " to all protocols"
+			          << std::endl;
+		}
 
 		// iterate on all protocols
 		m_Protocols.Lock();
+		
+		// DIAGNOSTIC: Count protocols
+		int protocolCount = 0;
+		for ( auto it=m_Protocols.begin(); it!=m_Protocols.end(); it++ ) {
+			protocolCount++;
+		}
+		
+		if (isHeader || (packetRouteCount % 10 == 1)) {
+			std::cout << "RouterThread[" << ThisModule << "]: Distributing to " 
+			          << protocolCount << " protocols" << std::endl;
+		}
+		
 		for ( auto it=m_Protocols.begin(); it!=m_Protocols.end(); it++ )
 		{
 			auto copy = packet->Copy();
