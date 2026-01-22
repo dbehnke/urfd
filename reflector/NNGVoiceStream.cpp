@@ -675,9 +675,9 @@ bool CNNGVoiceStream::CreateVirtualClient(const std::string& callsign)
     }
     
     // Create a virtual USRP client for web transmissions
-    // Use a dummy IP address (127.0.0.1) since this is a virtual client
+    // Use loopback IP address (127.0.0.1) since this is a virtual client
     CCallsign cs(callsign);
-    CIp ip;  // Default constructor creates a valid IP
+    CIp ip("127.0.0.1", AF_INET, SOCK_DGRAM, 0);  // Loopback for virtual client
     auto virtualClient = std::make_shared<CUSRPClient>(cs, ip, m_Module);
     
     if (!virtualClient) {
