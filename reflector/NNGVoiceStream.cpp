@@ -649,6 +649,11 @@ void CNNGVoiceStream::HandleAudioData(const std::string& module, const std::stri
                   << num_samples << " PCM samples)" << std::endl;
     }
     
+    // Write audio to recorder (for web client recordings)
+    if (m_Recorder.IsRecording()) {
+        m_Recorder.Write(pcm, num_samples);
+    }
+    
     // Inject PCM audio into reflector via stream
     // Create USRP frame packet with PCM data
     // The last parameter indicates if this is the last frame (we don't know yet, so false)
@@ -992,6 +997,15 @@ void CNNGVoiceStream::HandleControlMessage(const unsigned char* data, int len)
             
             session.hasActiveStream = true;
             
+            // Start audio recording
+            // Get audio path from config
+            std::string audioPath = g_Reflector.GetAudioRecordingPath();
+            if (!audioPath.empty() && g_Reflector.IsAudioRecordingEnabled()) {
+                session.audioFilename = m_Recorder.Start(audioPath);
+                std::cout << "NNGVoiceStream[" << m_Module << "]: Started recording for " << callsign 
+                          << " to " << session.audioFilename << std::endl;
+            }
+            
             // Success response
             json response;
             response["status"] = "success";
@@ -1062,9 +1076,22 @@ void CNNGVoiceStream::HandleControlMessage(const unsigned char* data, int len)
                     client->NotAMaster();
                     std::cout << "NNGVoiceStream[" << m_Module << "]: PTT stop - client demoted from master" << std::endl;
                     
-                    // Stop recording and get the filename
+                    // Stop recording from CodecStream (this may be empty if bypassed transcoder)
                     std::string recording = session.activeStream->StopRecording();
-                    std::cout << "NNGVoiceStream[" << m_Module << "]: PTT stop - recording stopped: " << recording << std::endl;
+                    std::cout << "NNGVoiceStream[" << m_Module << "]: PTT stop - CodecStream recording stopped: " << recording << std::endl;
+                    
+                    // Stop recording from NNGVoiceStream (our own recorder for web client audio)
+                    if (m_Recorder.IsRecording()) {
+                        m_Recorder.Stop();
+                        std::cout << "NNGVoiceStream[" << m_Module << "]: PTT stop - NNGVoiceStream recording stopped: " 
+                                  << session.audioFilename << std::endl;
+                        
+                        // Use our recording if CodecStream didn't produce one
+                        if (recording.empty() && !session.audioFilename.empty()) {
+                            recording = session.audioFilename;
+                            std::cout << "NNGVoiceStream[" << m_Module << "]: Using NNGVoiceStream recording: " << recording << std::endl;
+                        }
+                    }
                     
                     // Notify users/dashboard about stream closing
                     std::cout << "NNGVoiceStream[" << m_Module << "]: PTT stop - calling GetUsers()->Closing()..." << std::endl;

@@ -14,6 +14,7 @@
 #include <nng/nng.h>
 #include <nng/protocol/pair0/pair.h>
 #include <nng/protocol/reqrep0/rep.h>
+#include "AudioRecorder.h"
 
 // Forward declarations
 class CReflector;
@@ -33,6 +34,7 @@ struct VoiceSession {
     uint16_t streamId;                         // Current stream ID (if hasActiveStream)
     uint8_t packetCounter;                     // Packet counter for current stream
     bool bypassTranscoder;                     // True if USRP mode (set once at PTT start)
+    std::string audioFilename;                 // Recording filename for this transmission
 };
 
 // NNG Voice Stream for live audio streaming to/from dashboard
@@ -130,6 +132,9 @@ private:
     // Session management (NEW - Phase 2)
     std::map<std::string, VoiceSession> m_Sessions;  // key: callsign
     std::mutex      m_SessionMutex;
+    
+    // Audio recording
+    CAudioRecorder  m_Recorder;
 
     // Opus settings
     static constexpr int SAMPLE_RATE = 8000;
