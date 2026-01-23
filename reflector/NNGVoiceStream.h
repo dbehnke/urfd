@@ -32,6 +32,7 @@ struct VoiceSession {
     bool hasActiveStream;                      // True during PTT, false when idle
     uint16_t streamId;                         // Current stream ID (if hasActiveStream)
     uint8_t packetCounter;                     // Packet counter for current stream
+    bool bypassTranscoder;                     // True if USRP mode (set once at PTT start)
 };
 
 // NNG Voice Stream for live audio streaming to/from dashboard

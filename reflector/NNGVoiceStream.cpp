@@ -655,13 +655,14 @@ void CNNGVoiceStream::HandleAudioData(const std::string& module, const std::stri
     auto packet = std::make_unique<CDvFramePacket>(pcm, session.streamId, false);
     packet->SetPacketModule(m_Module);
     
-    // CRITICAL FIX: Web dashboard audio is already USRP/PCM, so it should NOT go through
-    // the transcoder. Set origin to "peer" so PacketStream bypasses CodecStream.
-    // This prevents:
-    // 1. Unnecessary transcoding (USRP->USRP)
-    // 2. Timing issues from round-trip to transcoder
-    // 3. Audio dropouts/hangups in AllStar's chan_usrp.c
-    packet->SetRemotePeerOrigin();
+    // Use the bypassTranscoder flag that was set at PTT start
+    // This was determined by checking if USRP clients are active on the module
+    // - If USRP mode: Bypass transcoder (PCM stays PCM for AllStar)
+    // - If digital mode: Use transcoder (PCM converted to AMBE for DMR/DStar/etc)
+    if (session.bypassTranscoder) {
+        packet->SetRemotePeerOrigin();
+    }
+    // else: packet remains LocalOrigin, will be sent through CodecStream
     
     // Push packet to stream
     session.activeStream->Push(std::move(packet));
@@ -945,6 +946,27 @@ void CNNGVoiceStream::HandleControlMessage(const unsigned char* data, int len)
             // Generate stream ID and create header packet
             session.streamId = GenerateStreamId();
             session.packetCounter = 0;
+            
+            // Detect if USRP client is active on this module (check ONCE at PTT start)
+            // This determines if we bypass transcoder for this entire transmission
+            session.bypassTranscoder = false;
+            if (m_Reflector) {
+                auto clients = m_Reflector->GetClients();
+                for (auto it = clients->begin(); it != clients->end(); ++it) {
+                    auto client = *it;
+                    if (client && client->GetProtocol() == EProtocol::usrp && 
+                        client->GetReflectorModule() == m_Module) {
+                        session.bypassTranscoder = true;
+                        std::cout << "NNGVoiceStream[" << m_Module << "]: USRP client detected - will bypass transcoder" << std::endl;
+                        break;
+                    }
+                }
+                m_Reflector->ReleaseClients();
+                
+                if (!session.bypassTranscoder) {
+                    std::cout << "NNGVoiceStream[" << m_Module << "]: Digital mode detected - will use transcoder" << std::endl;
+                }
+            }
             
             CCallsign my(callsign);
             CCallsign ur("CQCQCQ");
