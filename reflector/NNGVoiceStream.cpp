@@ -998,9 +998,10 @@ void CNNGVoiceStream::HandleControlMessage(const unsigned char* data, int len)
             session.hasActiveStream = true;
             
             // Start audio recording
-            // Get audio path from config
-            std::string audioPath = g_Reflector.GetAudioRecordingPath();
-            if (!audioPath.empty() && g_Reflector.IsAudioRecordingEnabled()) {
+            // Get audio path from config (same as CodecStream does)
+            if (g_Configure.GetBoolean(g_Keys.audio.enable))
+            {
+                std::string audioPath = g_Configure.GetString(g_Keys.audio.path);
                 session.audioFilename = m_Recorder.Start(audioPath);
                 std::cout << "NNGVoiceStream[" << m_Module << "]: Started recording for " << callsign 
                           << " to " << session.audioFilename << std::endl;
