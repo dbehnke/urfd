@@ -8,6 +8,8 @@
 #include <iostream>
 #include <cstring>
 #include <cstdlib>
+#include <thread>
+#include <chrono>
 
 using json = nlohmann::json;
 
@@ -1036,6 +1038,11 @@ void CNNGVoiceStream::HandleControlMessage(const unsigned char* data, int len)
                     std::cout << "NNGVoiceStream[" << m_Module << "]: PTT stop - pushing final packet to stream (PeerOrigin set)" << std::endl;
                     session.activeStream->Push(std::move(packet));
                     std::cout << "NNGVoiceStream[" << m_Module << "]: PTT stop - final packet pushed" << std::endl;
+                    
+                    // CRITICAL: Give router thread time to process the final packet before closing stream
+                    // Without this delay, the packet might not be fully routed to USRP before stream closes
+                    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+                    std::cout << "NNGVoiceStream[" << m_Module << "]: PTT stop - waited for final packet routing" << std::endl;
                 } else {
                     std::cout << "NNGVoiceStream[" << m_Module << "]: PTT stop - WARNING: streamId is 0, not creating final packet!" << std::endl;
                 }
