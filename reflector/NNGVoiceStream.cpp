@@ -655,6 +655,14 @@ void CNNGVoiceStream::HandleAudioData(const std::string& module, const std::stri
     auto packet = std::make_unique<CDvFramePacket>(pcm, session.streamId, false);
     packet->SetPacketModule(m_Module);
     
+    // CRITICAL FIX: Web dashboard audio is already USRP/PCM, so it should NOT go through
+    // the transcoder. Set origin to "peer" so PacketStream bypasses CodecStream.
+    // This prevents:
+    // 1. Unnecessary transcoding (USRP->USRP)
+    // 2. Timing issues from round-trip to transcoder
+    // 3. Audio dropouts/hangups in AllStar's chan_usrp.c
+    packet->SetRemotePeerOrigin();
+    
     // Push packet to stream
     session.activeStream->Push(std::move(packet));
     
