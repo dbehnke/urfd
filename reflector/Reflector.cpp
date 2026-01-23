@@ -403,11 +403,15 @@ void CReflector::RouterThread(const char ThisModule)
 
 		packet->SetPacketModule(ThisModule);
 		
-		// DIAGNOSTIC: Log packet routing (throttled)
+		// DIAGNOSTIC: Log packet routing (throttled, but always log last packets and headers)
 		bool isHeader = packet->IsDvHeader();
-		if (isHeader || (++packetRouteCount % 10 == 1)) {
+		bool isLastPacket = packet->IsLastPacket();
+		bool shouldLog = isHeader || isLastPacket || (++packetRouteCount % 10 == 1);
+		
+		if (shouldLog) {
 			std::cout << "RouterThread[" << ThisModule << "] #" << packetRouteCount
 			          << " - Routing " << (isHeader ? "HEADER" : "frame")
+			          << (isLastPacket ? " (FINAL PACKET)" : "")
 			          << " to all protocols"
 			          << std::endl;
 		}
@@ -421,7 +425,7 @@ void CReflector::RouterThread(const char ThisModule)
 			protocolCount++;
 		}
 		
-		if (isHeader || (packetRouteCount % 10 == 1)) {
+		if (shouldLog) {
 			std::cout << "RouterThread[" << ThisModule << "]: Distributing to " 
 			          << protocolCount << " protocols" << std::endl;
 		}
