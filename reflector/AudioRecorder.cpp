@@ -72,9 +72,13 @@ std::string CAudioRecorder::Start(const std::string& directory)
         std::cerr << "AudioRecorder: Failed to open file: " << m_FullPath << std::endl;
         return "";
     }
+    std::cout << "AudioRecorder: Opened file for writing: " << m_FullPath << std::endl;
 
     InitOpus();
     InitOgg(); // No longer calls srand
+    
+    std::cout << "AudioRecorder: Initialization complete. Encoder=" << (m_Encoder ? "valid" : "null") 
+              << ", File open=" << (m_File.is_open() ? "yes" : "no") << std::endl;
 
     m_StartTime = std::time(nullptr);
     m_TotalBytes = 0;
@@ -90,8 +94,16 @@ void CAudioRecorder::InitOpus()
     m_Encoder = opus_encoder_create(SAMPLE_RATE, CHANNELS, APPLICATION, &err);
     if (err != OPUS_OK) {
         std::cerr << "AudioRecorder: Failed to create Opus encoder: " << opus_strerror(err) << std::endl;
+        return;
     }
-    opus_encoder_ctl(m_Encoder, OPUS_SET_BITRATE(12000)); // 12kbps
+    std::cout << "AudioRecorder: Opus encoder created successfully" << std::endl;
+    
+    int result = opus_encoder_ctl(m_Encoder, OPUS_SET_BITRATE(12000)); // 12kbps
+    if (result != OPUS_OK) {
+        std::cerr << "AudioRecorder: Failed to set bitrate: " << opus_strerror(result) << std::endl;
+    } else {
+        std::cout << "AudioRecorder: Opus encoder bitrate set to 12kbps" << std::endl;
+    }
 }
 
 void CAudioRecorder::InitOgg()
@@ -185,9 +197,23 @@ void CAudioRecorder::WriteOggPage(bool flush)
 
 void CAudioRecorder::Write(const int16_t* samples, int count)
 {
-    if (!m_IsRecording || !m_Encoder) return;
+    if (!m_IsRecording || !m_Encoder) {
+        static uint32_t skipCount = 0;
+        if (++skipCount % 20 == 1) {  // Log every 20th skip
+            std::cout << "AudioRecorder: Write() called but not recording (IsRecording=" 
+                      << m_IsRecording << ", Encoder=" << (m_Encoder ? "valid" : "null") 
+                      << "). Skipped " << skipCount << " writes so far." << std::endl;
+        }
+        return;
+    }
 
     std::lock_guard<std::mutex> lock(m_Mutex);
+    
+    static uint32_t writeCount = 0;
+    if (++writeCount % 20 == 1) {  // Log every 20th write
+        std::cout << "AudioRecorder: Write() #" << writeCount << " - received " << count 
+                  << " samples. Current buffer size: " << m_PcmBuffer.size() << std::endl;
+    }
 
     m_PcmBuffer.insert(m_PcmBuffer.end(), samples, samples + count);
 

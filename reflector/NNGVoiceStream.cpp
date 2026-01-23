@@ -644,15 +644,27 @@ void CNNGVoiceStream::HandleAudioData(const std::string& module, const std::stri
     
     // Log successful decode
     static uint32_t decodeCount = 0;
-    if (++decodeCount % 10 == 1) {  // Log every 10th decode
+    bool shouldLog = (++decodeCount % 10 == 1);
+    if (shouldLog) {  // Log every 10th decode
         std::cout << "NNGVoiceStream[" << m_Module << "]: Decoded Opus packet #" << decodeCount 
                   << " from " << callsign << " (" << opusLen << " bytes -> " 
                   << num_samples << " PCM samples)" << std::endl;
     }
     
     // Write audio to recorder (for web client recordings)
-    if (m_Recorder.IsRecording()) {
+    bool isRecording = m_Recorder.IsRecording();
+    if (shouldLog) {
+        std::cout << "NNGVoiceStream[" << m_Module << "]: Recorder state: IsRecording=" 
+                  << (isRecording ? "true" : "false") << std::endl;
+    }
+    if (isRecording) {
+        if (shouldLog) {
+            std::cout << "NNGVoiceStream[" << m_Module << "]: Writing " << num_samples 
+                      << " PCM samples to recorder" << std::endl;
+        }
         m_Recorder.Write(pcm, num_samples);
+    } else if (shouldLog) {
+        std::cout << "NNGVoiceStream[" << m_Module << "]: WARNING: Recorder not recording, skipping audio" << std::endl;
     }
     
     // Inject PCM audio into reflector via stream
