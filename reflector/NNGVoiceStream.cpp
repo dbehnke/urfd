@@ -1017,6 +1017,9 @@ void CNNGVoiceStream::HandleControlMessage(const unsigned char* data, int len)
             // that waits for the stream queue to be empty, which can hang indefinitely.
             // Instead, we manually perform the necessary cleanup steps without the blocking wait,
             // similar to how USRPProtocol handles this.
+            std::cout << "NNGVoiceStream[" << m_Module << "]: PTT stop - checking streamId: " << session.streamId 
+                      << ", activeStream=" << (session.activeStream ? "YES" : "NO") << std::endl;
+            
             if (session.activeStream && m_Reflector) {
                 if (session.streamId != 0) {
                     // Push final silence packet to mark end of stream
@@ -1033,7 +1036,12 @@ void CNNGVoiceStream::HandleControlMessage(const unsigned char* data, int len)
                     std::cout << "NNGVoiceStream[" << m_Module << "]: PTT stop - pushing final packet to stream (PeerOrigin set)" << std::endl;
                     session.activeStream->Push(std::move(packet));
                     std::cout << "NNGVoiceStream[" << m_Module << "]: PTT stop - final packet pushed" << std::endl;
+                } else {
+                    std::cout << "NNGVoiceStream[" << m_Module << "]: PTT stop - WARNING: streamId is 0, not creating final packet!" << std::endl;
                 }
+            } else {
+                std::cout << "NNGVoiceStream[" << m_Module << "]: PTT stop - WARNING: no activeStream or Reflector!" << std::endl;
+            }
                 
                 // Lock clients for the following operations
                 m_Reflector->GetClients();
