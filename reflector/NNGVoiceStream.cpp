@@ -1020,9 +1020,14 @@ void CNNGVoiceStream::HandleControlMessage(const unsigned char* data, int len)
             if (session.activeStream && m_Reflector) {
                 if (session.streamId != 0) {
                     // Push final silence packet to mark end of stream
+                    // CRITICAL: Set as peer origin to bypass transcoder. The transcoder path would fail
+                    // because the stream gets closed before the last packet returns from transcoding.
+                    // By marking as peer origin, the packet goes directly to protocols (including USRP)
+                    // with the islast=true flag, sending the KEYUP_FALSE signal to AllStar.
                     int16_t silence[FRAME_SIZE] = {0};
                     auto packet = std::make_unique<CDvFramePacket>(silence, session.streamId, true);
                     packet->SetPacketModule(m_Module);
+                    packet->SetRemotePeerOrigin();  // Bypass transcoder!
                     session.activeStream->Push(std::move(packet));
                 }
                 
