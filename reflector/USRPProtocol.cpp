@@ -493,7 +493,9 @@ void CUSRPProtocol::EncodeUSRPPacket(const CDvHeaderPacket &Header, const CDvFra
 	
 	// DIAGNOSTIC: Check PCM data validity
 	static uint32_t encodeFrameCount = 0;
-	if (++encodeFrameCount % 10 == 1) {
+	bool shouldLogEncode = last || (++encodeFrameCount % 10 == 1);
+	
+	if (shouldLogEncode) {
 		if (pAudio) {
 			// Calculate rough amplitude to detect silence
 			const int16_t *pcmSamples = reinterpret_cast<const int16_t*>(pAudio);
