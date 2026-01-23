@@ -18,6 +18,7 @@
 
 
 #include "PacketStream.h"
+#include <iostream>
 
 ////////////////////////////////////////////////////////////////////////////////////////
 // constructor
@@ -92,6 +93,22 @@ void CPacketStream::Push(std::unique_ptr<CPacket> Packet)
 	{
 		Packet->UpdatePids(m_uiPacketCntr++);
 	}
+	
+	// DIAGNOSTIC: Log packet push details
+	bool isDvFrame = Packet->IsDvFrame();
+	bool isLocalOrigin = Packet->IsLocalOrigin();
+	bool isLastPacket = Packet->IsLastPacket();
+	bool hasCodecStream = (m_CodecStream != nullptr);
+	
+	if (isLastPacket) {
+		std::cout << "PacketStream[" << m_PSModule << "]::Push - FINAL PACKET: "
+		          << "IsDvFrame=" << (isDvFrame ? "YES" : "no")
+		          << ", IsLocalOrigin=" << (isLocalOrigin ? "YES" : "no")
+		          << ", HasCodecStream=" << (hasCodecStream ? "YES" : "no")
+		          << ", WillTranscode=" << (hasCodecStream && isDvFrame && isLocalOrigin ? "YES" : "NO")
+		          << std::endl;
+	}
+	
 	// ... Is there a CodecStream (is this module transcoded)?
 	// AND Is this voice data?
 	// AND Is this from a local client and not from an interlinked URF
@@ -102,11 +119,17 @@ void CPacketStream::Push(std::unique_ptr<CPacket> Packet)
 		auto Frame = std::unique_ptr<CDvFramePacket>(static_cast<CDvFramePacket *>(Packet.release()));
 		// trancoder will push it to m_Queue after transcoding
 		// is completed
+		if (isLastPacket) {
+			std::cout << "PacketStream[" << m_PSModule << "]::Push - Sending final packet to TRANSCODER" << std::endl;
+		}
 		m_CodecStream->Push(std::move(Frame));
 	}
 	else
 	{
 		// no, just bypass transcoder
+		if (isLastPacket) {
+			std::cout << "PacketStream[" << m_PSModule << "]::Push - Sending final packet DIRECTLY to queue (bypassing transcoder)" << std::endl;
+		}
 		m_Queue.Push(std::move(Packet));
 	}
 }
