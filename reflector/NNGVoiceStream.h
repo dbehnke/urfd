@@ -15,6 +15,7 @@
 #include <nng/protocol/pair0/pair.h>
 #include <nng/protocol/reqrep0/rep.h>
 #include "AudioRecorder.h"
+#include "AGC.h"
 
 // Forward declarations
 class CReflector;
@@ -135,6 +136,9 @@ private:
     
     // Audio recording
     CAudioRecorder  m_Recorder;
+    
+    // AGC for web client audio (RX) and AllStar audio (TX)
+    CAGC            m_AGC;
 
     // Opus settings
     static constexpr int SAMPLE_RATE = 8000;

@@ -237,9 +237,20 @@ void CNNGVoiceStream::WriteAudio(const int16_t* samples, int count, const std::s
     }
 
     std::lock_guard<std::mutex> lock(m_Mutex);
+    
+    // Apply AGC to digital/AllStar audio before sending to dashboard
+    // Make a copy since AGC modifies in-place
+    std::vector<int16_t> agcBuffer(samples, samples + count);
+    m_AGC.Process(agcBuffer.data(), count);
+    
+    static uint32_t agcCount = 0;
+    if (++agcCount % 10 == 1) {
+        std::cout << "NNGVoiceStream[" << m_Module << "]: AGC processed " << count 
+                  << " samples for dashboard (digital/AllStar audio)" << std::endl;
+    }
 
-    // Accumulate samples in buffer
-    m_PcmBuffer.insert(m_PcmBuffer.end(), samples, samples + count);
+    // Accumulate samples in buffer (use AGC-processed samples)
+    m_PcmBuffer.insert(m_PcmBuffer.end(), agcBuffer.begin(), agcBuffer.end());
 
     // Encode and send frames when we have enough samples
     unsigned char out_buf[512];  // Opus can encode up to 510 bytes for 20ms frame
@@ -649,6 +660,13 @@ void CNNGVoiceStream::HandleAudioData(const std::string& module, const std::stri
         std::cout << "NNGVoiceStream[" << m_Module << "]: Decoded Opus packet #" << decodeCount 
                   << " from " << callsign << " (" << opusLen << " bytes -> " 
                   << num_samples << " PCM samples)" << std::endl;
+    }
+    
+    // Apply AGC to web client audio
+    m_AGC.Process(pcm, num_samples);
+    if (shouldLog) {
+        std::cout << "NNGVoiceStream[" << m_Module << "]: AGC processed " << num_samples 
+                  << " samples from web client" << std::endl;
     }
     
     // Write audio to recorder (for web client recordings)
