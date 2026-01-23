@@ -254,12 +254,15 @@ void CUSRPProtocol::HandleQueue(void)
 		static uint32_t packetCount = 0;
 		bool isHeader = packet->IsDvHeader();
 		bool isFrame = packet->IsDvFrame();
+		bool isLastPacket = packet->IsLastPacket();
+		bool shouldLog = isHeader || isLastPacket || (++packetCount % 10 == 1);
 		
-		if (++packetCount % 10 == 1 || isHeader) {
+		if (shouldLog) {
 			std::cout << "USRPProtocol::HandleQueue #" << packetCount 
 			          << " - Module=" << module
 			          << ", Header=" << (isHeader ? "YES" : "no")
 			          << ", Frame=" << (isFrame ? "YES" : "no")
+			          << (isLastPacket ? ", FINAL PACKET" : "")
 			          << std::endl;
 		}
 
@@ -287,10 +290,13 @@ void CUSRPProtocol::HandleQueue(void)
 			}
 			
 			static uint32_t frameEncodeCount = 0;
-			if (++frameEncodeCount % 10 == 1) {
+			bool shouldLogFrame = isLastPacket || (++frameEncodeCount % 10 == 1);
+			
+			if (shouldLogFrame) {
 				std::cout << "USRPProtocol: Encoding FRAME #" << frameEncodeCount 
 				          << " for module " << module
 				          << ", PCM data=" << (pcmData ? "VALID" : "NULL")
+				          << (isLastPacket ? ", FINAL PACKET" : "")
 				          << std::endl;
 			}
 			
