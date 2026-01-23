@@ -1039,9 +1039,6 @@ void CNNGVoiceStream::HandleControlMessage(const unsigned char* data, int len)
                 } else {
                     std::cout << "NNGVoiceStream[" << m_Module << "]: PTT stop - WARNING: streamId is 0, not creating final packet!" << std::endl;
                 }
-            } else {
-                std::cout << "NNGVoiceStream[" << m_Module << "]: PTT stop - WARNING: no activeStream or Reflector!" << std::endl;
-            }
                 
                 // Lock clients for the following operations
                 m_Reflector->GetClients();
