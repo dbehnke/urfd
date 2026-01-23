@@ -1024,11 +1024,15 @@ void CNNGVoiceStream::HandleControlMessage(const unsigned char* data, int len)
                     // because the stream gets closed before the last packet returns from transcoding.
                     // By marking as peer origin, the packet goes directly to protocols (including USRP)
                     // with the islast=true flag, sending the KEYUP_FALSE signal to AllStar.
+                    std::cout << "NNGVoiceStream[" << m_Module << "]: PTT stop - creating final packet (streamId=" 
+                              << session.streamId << ", IsLast=true)" << std::endl;
                     int16_t silence[FRAME_SIZE] = {0};
                     auto packet = std::make_unique<CDvFramePacket>(silence, session.streamId, true);
                     packet->SetPacketModule(m_Module);
                     packet->SetRemotePeerOrigin();  // Bypass transcoder!
+                    std::cout << "NNGVoiceStream[" << m_Module << "]: PTT stop - pushing final packet to stream (PeerOrigin set)" << std::endl;
                     session.activeStream->Push(std::move(packet));
+                    std::cout << "NNGVoiceStream[" << m_Module << "]: PTT stop - final packet pushed" << std::endl;
                 }
                 
                 // Lock clients for the following operations
