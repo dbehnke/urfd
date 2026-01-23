@@ -1,4 +1,5 @@
 #include "NNGVoiceStream.h"
+#include "Global.h"
 #include "Reflector.h"
 #include "USRPClient.h"
 #include "DVHeaderPacket.h"
