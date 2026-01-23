@@ -584,15 +584,8 @@ void CNNGVoiceStream::HandlePTTStop(const std::string& callsign)
     }
     
     // Close reflector stream
+    // WORKAROUND: Do NOT send final packet with keyup=0 - AllStar chan_usrp ignores it anyway
     if (session.activeStream && m_Reflector) {
-        // Send a final "last frame" packet to properly close the stream
-        if (session.streamId != 0) {
-            int16_t silence[FRAME_SIZE] = {0};  // Silent frame
-            auto packet = std::make_unique<CDvFramePacket>(silence, session.streamId, true);
-            packet->SetPacketModule(m_Module);
-            session.activeStream->Push(std::move(packet));
-        }
-        
         m_Reflector->CloseStream(session.activeStream);
         session.activeStream = nullptr;
     }
@@ -1018,34 +1011,17 @@ void CNNGVoiceStream::HandleControlMessage(const unsigned char* data, int len)
             // NOTE: We avoid calling m_Reflector->CloseStream() because it has a blocking wait loop
             // that waits for the stream queue to be empty, which can hang indefinitely.
             // Instead, we manually perform the necessary cleanup steps without the blocking wait,
-            // similar to how USRPProtocol handles this.
-            std::cout << "NNGVoiceStream[" << m_Module << "]: PTT stop - checking streamId: " << session.streamId 
-                      << ", activeStream=" << (session.activeStream ? "YES" : "NO") << std::endl;
+            // ensuring that the stream is properly closed without causing delays.
             
-            if (session.activeStream && m_Reflector) {
-                if (session.streamId != 0) {
-                    // Push final silence packet to mark end of stream
-                    // CRITICAL: Set as peer origin to bypass transcoder. The transcoder path would fail
-                    // because the stream gets closed before the last packet returns from transcoding.
-                    // By marking as peer origin, the packet goes directly to protocols (including USRP)
-                    // with the islast=true flag, sending the KEYUP_FALSE signal to AllStar.
-                    std::cout << "NNGVoiceStream[" << m_Module << "]: PTT stop - creating final packet (streamId=" 
-                              << session.streamId << ", IsLast=true)" << std::endl;
-                    int16_t silence[FRAME_SIZE] = {0};
-                    auto packet = std::make_unique<CDvFramePacket>(silence, session.streamId, true);
-                    packet->SetPacketModule(m_Module);
-                    packet->SetRemotePeerOrigin();  // Bypass transcoder!
-                    std::cout << "NNGVoiceStream[" << m_Module << "]: PTT stop - pushing final packet to stream (PeerOrigin set)" << std::endl;
-                    session.activeStream->Push(std::move(packet));
-                    std::cout << "NNGVoiceStream[" << m_Module << "]: PTT stop - final packet pushed" << std::endl;
-                    
-                    // CRITICAL: Give router thread time to process the final packet before closing stream
-                    // Without this delay, the packet might not be fully routed to USRP before stream closes
-                    std::this_thread::sleep_for(std::chrono::milliseconds(50));
-                    std::cout << "NNGVoiceStream[" << m_Module << "]: PTT stop - waited for final packet routing" << std::endl;
-                } else {
-                    std::cout << "NNGVoiceStream[" << m_Module << "]: PTT stop - WARNING: streamId is 0, not creating final packet!" << std::endl;
-                }
+            // WORKAROUND FOR ALLSTAR CHAN_USRP BUG:
+            // AllStar's chan_usrp.c does NOT check the keyup field in received USRP packets.
+            // It only unkeys based on timeout (80ms of no packets).
+            // Sending a final packet with keyup=0 serves no purpose and may cause issues.
+            // Instead, we simply stop sending packets and let AllStar timeout naturally.
+            // This results in a clean unkey without rapid PTT cycling.
+            
+            if (session.activeStream) {
+                std::cout << "NNGVoiceStream[" << m_Module << "]: PTT stop - NOT sending final packet (letting AllStar timeout naturally)" << std::endl;
                 
                 // Lock clients for the following operations
                 m_Reflector->GetClients();
