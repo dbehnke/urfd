@@ -240,7 +240,8 @@ void CNNGVoiceStream::WriteAudio(const int16_t* samples, int count, const std::s
 
     std::lock_guard<std::mutex> lock(m_Mutex);
     
-    // Apply AGC to digital/AllStar audio before sending to dashboard
+    // Apply AGC ONLY to digital/AllStar audio before sending to dashboard.
+    // Web client audio already has its own AGC, so we don't double-process it.
     // Make a copy since AGC modifies in-place
     std::vector<int16_t> agcBuffer(samples, samples + count);
     m_AGC.Process(agcBuffer.data(), count);
@@ -248,7 +249,7 @@ void CNNGVoiceStream::WriteAudio(const int16_t* samples, int count, const std::s
     static uint32_t agcCount = 0;
     if (++agcCount % 10 == 1) {
         std::cout << "NNGVoiceStream[" << m_Module << "]: AGC processed " << count 
-                  << " samples for dashboard (digital/AllStar audio)" << std::endl;
+                  << " samples for dashboard (digital/AllStar → web dashboard)" << std::endl;
     }
 
     // Accumulate samples in buffer (use AGC-processed samples)
@@ -664,12 +665,8 @@ void CNNGVoiceStream::HandleAudioData(const std::string& module, const std::stri
                   << num_samples << " PCM samples)" << std::endl;
     }
     
-    // Apply AGC to web client audio
-    m_AGC.Process(pcm, num_samples);
-    if (shouldLog) {
-        std::cout << "NNGVoiceStream[" << m_Module << "]: AGC processed " << num_samples 
-                  << " samples from web client" << std::endl;
-    }
+    // NOTE: Web client already has its own AGC, so we don't apply AGC here.
+    // AGC is only applied to digital/AllStar audio going TO the dashboard (in WriteAudio).
     
     // Write audio to recorder (for web client recordings)
     bool isRecording = m_Recorder.IsRecording();
