@@ -693,14 +693,12 @@ void CNNGVoiceStream::HandleAudioData(const std::string& module, const std::stri
     auto packet = std::make_unique<CDvFramePacket>(pcm, session.streamId, false);
     packet->SetPacketModule(m_Module);
     
-    // Use the bypassTranscoder flag that was set at PTT start
-    // This was determined by checking if USRP clients are active on the module
-    // - If USRP mode: Bypass transcoder (PCM stays PCM for AllStar)
-    // - If digital mode: Use transcoder (PCM converted to AMBE for DMR/DStar/etc)
-    if (session.bypassTranscoder) {
-        packet->SetRemotePeerOrigin();
-    }
-    // else: packet remains LocalOrigin, will be sent through CodecStream
+    // ALWAYS use LocalOrigin so packets go through CodecStream for transcoding
+    // CodecStream will:
+    // - Transcode PCM to AMBE for digital clients (DMR/DStar/etc)
+    // - Send PCM to USRP clients (AllStar) 
+    // - Apply proper routing based on client protocol
+    // (packet remains LocalOrigin by default, no need to set it)
     
     // Push packet to stream
     session.activeStream->Push(std::move(packet));
