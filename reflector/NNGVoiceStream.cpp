@@ -665,8 +665,11 @@ void CNNGVoiceStream::HandleAudioData(const std::string& module, const std::stri
                   << num_samples << " PCM samples)" << std::endl;
     }
     
-    // NOTE: Web client already has its own AGC, so we don't apply AGC here.
-    // AGC is only applied to digital/AllStar audio going TO the dashboard (in WriteAudio).
+    // Apply AGC at -18 dBFS to match TCD baseline for radio ecosystem
+    // This is a format conversion (Opus → PCM) so AGC is appropriate here
+    // Target: 0.126f = -18 dBFS (same as TCD uses for radio-to-radio communication)
+    m_AGC.SetTargetLevel(0.126f);
+    m_AGC.Process(pcm, num_samples);
     
     // Write audio to recorder (for web client recordings)
     bool isRecording = m_Recorder.IsRecording();
