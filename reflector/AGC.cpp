@@ -5,8 +5,8 @@
 CAGC::CAGC() 
     : m_enabled(true)        // ENABLED BY DEFAULT (Critical Fix: was false)
     , m_gain(1.0f)
-    , m_peak_env(0.126f)     // Start assuming target level
-    , m_target_level(0.126f) // -18 dBFS (0.126) - Default Safe Baseline if config missing
+    , m_peak_env(0.355f)     // Start assuming target level
+    , m_target_level(0.355f) // -9 dBFS (0.355) - Good balance between loudness and headroom
     , m_max_gain(0.9f)       // 0.9 (-1 dB) - User requested to kill USRP pop
 {
     // Time constants
@@ -17,7 +17,7 @@ CAGC::CAGC()
     m_release_coeff = 0.0002f;
     
     std::cout << "AGC: Initialized with target_level=" << m_target_level 
-              << " (-18 dBFS), max_gain=" << m_max_gain << " (-1 dB)" << std::endl;
+              << " (-9 dBFS), max_gain=" << m_max_gain << " (-1 dB)" << std::endl;
 }
 
 void CAGC::Process(int16_t* samples, size_t count)
