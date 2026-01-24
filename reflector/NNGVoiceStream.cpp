@@ -7,8 +7,10 @@
 #include "PacketStream.h"
 #include <nlohmann/json.hpp>
 #include <iostream>
+#include <fstream>
 #include <cstring>
 #include <cstdlib>
+#include <cstdio>
 #include <thread>
 #include <chrono>
 
@@ -1118,8 +1120,37 @@ void CNNGVoiceStream::HandleControlMessage(const unsigned char* data, int len)
                         std::cout << "NNGVoiceStream[" << m_Module << "]: PTT stop - NNGVoiceStream recording stopped: " 
                                   << session.audioFilename << std::endl;
                         
-                        // Use our recording if CodecStream didn't produce one
-                        if (recording.empty() && !session.audioFilename.empty()) {
+                        // Check if CodecStream recording is actually valid (>1KB)
+                        // Empty/header-only files from bypass mode should be ignored
+                        bool codecStreamRecordingValid = false;
+                        if (!recording.empty()) {
+                            std::string codecStreamPath;
+                            if (g_Configure.GetBoolean(g_Keys.audio.enable)) {
+                                std::string audioPath = g_Configure.GetString(g_Keys.audio.path);
+                                codecStreamPath = audioPath + "/" + recording;
+                                
+                                // Check file size
+                                std::ifstream file(codecStreamPath, std::ios::binary | std::ios::ate);
+                                if (file.is_open()) {
+                                    size_t fileSize = file.tellg();
+                                    file.close();
+                                    
+                                    if (fileSize > 1024) {  // More than 1KB = valid recording
+                                        codecStreamRecordingValid = true;
+                                        std::cout << "NNGVoiceStream[" << m_Module << "]: CodecStream recording valid (" 
+                                                  << fileSize << " bytes)" << std::endl;
+                                    } else {
+                                        std::cout << "NNGVoiceStream[" << m_Module << "]: CodecStream recording too small (" 
+                                                  << fileSize << " bytes), deleting and using NNGVoiceStream recording" << std::endl;
+                                        std::remove(codecStreamPath.c_str());
+                                        codecStreamRecordingValid = false;
+                                    }
+                                }
+                            }
+                        }
+                        
+                        // Use our recording if CodecStream didn't produce a valid one
+                        if (!codecStreamRecordingValid && !session.audioFilename.empty()) {
                             recording = session.audioFilename;
                             std::cout << "NNGVoiceStream[" << m_Module << "]: Using NNGVoiceStream recording: " << recording << std::endl;
                         }

@@ -15,11 +15,18 @@ CAGC::CAGC()
     
     // Release: Slow
     m_release_coeff = 0.0002f;
+    
+    std::cout << "AGC: Initialized with target_level=" << m_target_level 
+              << " (-18 dBFS), max_gain=" << m_max_gain << " (-1 dB)" << std::endl;
 }
 
 void CAGC::Process(int16_t* samples, size_t count)
 {
     if (!m_enabled) return;
+    
+    static uint32_t processCount = 0;
+    static float max_gain_seen = 0.0f;
+    static float min_gain_seen = 10.0f;
 
     for (size_t i = 0; i < count; ++i)
     {
@@ -54,6 +61,10 @@ void CAGC::Process(int16_t* samples, size_t count)
              // Release (Gain Recovery) - Smoothed
              m_gain = 0.9995f * m_gain + 0.0005f * ideal_gain;
         }
+        
+        // Track gain range
+        if (m_gain > max_gain_seen) max_gain_seen = m_gain;
+        if (m_gain < min_gain_seen) min_gain_seen = m_gain;
 
         // 6. Apply Gain
         float output = input * m_gain;
@@ -64,5 +75,12 @@ void CAGC::Process(int16_t* samples, size_t count)
 
         // 8. Output
         samples[i] = int16_t(output * 32767.0f);
+    }
+    
+    // Log every 1000th process call
+    if (++processCount % 1000 == 1) {
+        std::cout << "AGC: Processed " << processCount << " calls. Current gain=" << m_gain 
+                  << ", envelope=" << m_peak_env << ", gain range=[" << min_gain_seen 
+                  << ", " << max_gain_seen << "]" << std::endl;
     }
 }
