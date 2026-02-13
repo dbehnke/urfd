@@ -88,7 +88,7 @@ void CCodecStream::ResetStats(uint16_t streamid, ECodecType type)
 	if (g_Configure.GetBoolean(g_Keys.audio.enable))
 	{
 		std::string path = g_Configure.GetString(g_Keys.audio.path);
-		m_Filename = m_Recorder.Start(path);
+		m_Filename = m_Recorder.Start(path, m_CSModule);
 	}
 	else
 	{
@@ -311,7 +311,7 @@ void CCodecStream::TxThread(void)
 		{
 			// update important stuff in Frame->m_TCPack for the transcoder
 			// sets the packet counter, stream id, last_packet, module and start the trip timer
-			Frame->SetTCParams(m_uiTotalPackets++);
+			Frame->SetTCParams(m_uiTotalPackets++, m_CSModule);
 
 		// now send to transcoder
 		int fd = g_TCServer.GetFD(Frame->GetCodecPacket()->module);
